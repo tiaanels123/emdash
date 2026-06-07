@@ -5,6 +5,7 @@ import {
   getProjectSettingsStore,
   getRepositoryStore,
 } from '@renderer/features/projects/stores/project-selectors';
+import { getActiveOrganizationId } from '@renderer/features/organizations/stores/organization-selectors';
 import { useGitHubRepositoryOwnerSelect } from '@renderer/lib/hooks/useGithubRepositoryOwners';
 import { rpc } from '@renderer/lib/ipc';
 import { type BaseModalProps } from '@renderer/lib/modal/modal-provider';
@@ -100,7 +101,7 @@ export const AddRemoteModal = observer(function AddRemoteModal({
           return;
         }
 
-        const result = await rpc.github.createRepository({
+        const result = await rpc.github.createRepository(getActiveOrganizationId(), {
           name: repositoryName.trim(),
           owner: owner.value,
           isPrivate: visibility === 'private',

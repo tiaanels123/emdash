@@ -35,12 +35,15 @@ export type GitHubAccountUpsert = {
 };
 
 export type GitHubAccountMetadataStore = {
-  getAccounts(): Promise<GitHubAccount[] | null>;
-  setAccounts(accounts: GitHubAccount[]): Promise<void>;
-  getDefaultAccountId(): Promise<string | null>;
-  setDefaultAccountId(accountId: string | null): Promise<void>;
-  getRemovedCliAccounts(): Promise<GitHubRemovedCliAccount[] | null>;
-  setRemovedCliAccounts(accounts: GitHubRemovedCliAccount[]): Promise<void>;
+  getAccounts(organizationId: string): Promise<GitHubAccount[] | null>;
+  setAccounts(organizationId: string, accounts: GitHubAccount[]): Promise<void>;
+  getDefaultAccountId(organizationId: string): Promise<string | null>;
+  setDefaultAccountId(organizationId: string, accountId: string | null): Promise<void>;
+  getRemovedCliAccounts(organizationId: string): Promise<GitHubRemovedCliAccount[] | null>;
+  setRemovedCliAccounts(
+    organizationId: string,
+    accounts: GitHubRemovedCliAccount[]
+  ): Promise<void>;
 };
 
 export type GitHubAccountSecretStore = {
@@ -55,10 +58,13 @@ export class GitHubAccountRegistry {
     private readonly secretStore: GitHubAccountSecretStore
   ) {}
 
-  async upsertAccount(input: GitHubAccountUpsert): Promise<GitHubAccount> {
+  async upsertAccount(
+    organizationId: string,
+    input: GitHubAccountUpsert
+  ): Promise<GitHubAccount> {
     const now = Date.now();
     const id = this.accountId(input.providerAccount);
-    const accounts = await this.listAccounts();
+    const accounts = await this.listAccounts(organizationId);
     const existing = accounts.find((account) => account.id === id);
     const next: GitHubAccount = {
       id,
@@ -71,24 +77,24 @@ export class GitHubAccountRegistry {
       updatedAt: now,
     };
 
-    await this.secretStore.setSecret(this.tokenSecretKey(id), input.accessToken);
+    await this.secretStore.setSecret(this.tokenSecretKey(organizationId, id), input.accessToken);
     const nextAccounts = existing
       ? accounts.map((account) => (account.id === id ? next : account))
       : [...accounts, next];
-    await this.metadataStore.setAccounts(nextAccounts);
-    await this.clearRemovedCliAccount(id);
-    await this.ensureDefaultAccount(nextAccounts);
+    await this.metadataStore.setAccounts(organizationId, nextAccounts);
+    await this.clearRemovedCliAccount(organizationId, id);
+    await this.ensureDefaultAccount(organizationId, nextAccounts);
     return next;
   }
 
-  async listAccounts(): Promise<GitHubAccount[]> {
-    return (await this.metadataStore.getAccounts()) ?? [];
+  async listAccounts(organizationId: string): Promise<GitHubAccount[]> {
+    return (await this.metadataStore.getAccounts(organizationId)) ?? [];
   }
 
-  async getDefaultAccountId(): Promise<string | null> {
+  async getDefaultAccountId(organizationId: string): Promise<string | null> {
     const [accounts, storedDefaultAccountId] = await Promise.all([
-      this.listAccounts(),
-      this.metadataStore.getDefaultAccountId(),
+      this.listAccounts(organizationId),
+      this.metadataStore.getDefaultAccountId(organizationId),
     ]);
     const defaultAccount = storedDefaultAccountId
       ? accounts.find((account) => account.id === storedDefaultAccountId)
@@ -97,40 +103,48 @@ export class GitHubAccountRegistry {
 
     const fallback = this.oldestAccount(accounts)?.id ?? null;
     if (fallback !== storedDefaultAccountId) {
-      await this.metadataStore.setDefaultAccountId(fallback);
+      await this.metadataStore.setDefaultAccountId(organizationId, fallback);
     }
     return fallback;
   }
 
-  async setDefaultAccountId(accountId: string): Promise<GitHubAccount | null> {
-    const account = (await this.listAccounts()).find((candidate) => candidate.id === accountId);
+  async setDefaultAccountId(
+    organizationId: string,
+    accountId: string
+  ): Promise<GitHubAccount | null> {
+    const account = (await this.listAccounts(organizationId)).find(
+      (candidate) => candidate.id === accountId
+    );
     if (!account) return null;
-    await this.metadataStore.setDefaultAccountId(account.id);
+    await this.metadataStore.setDefaultAccountId(organizationId, account.id);
     return account;
   }
 
-  async resolveToken(accountId: string): Promise<string | null> {
-    return this.secretStore.getSecret(this.tokenSecretKey(accountId));
+  async resolveToken(organizationId: string, accountId: string): Promise<string | null> {
+    return this.secretStore.getSecret(this.tokenSecretKey(organizationId, accountId));
   }
 
-  async listRemovedCliAccounts(): Promise<GitHubRemovedCliAccount[]> {
-    return (await this.metadataStore.getRemovedCliAccounts()) ?? [];
+  async listRemovedCliAccounts(organizationId: string): Promise<GitHubRemovedCliAccount[]> {
+    return (await this.metadataStore.getRemovedCliAccounts(organizationId)) ?? [];
   }
 
-  async removeAccount(accountId: string): Promise<void> {
-    const accounts = await this.listAccounts();
+  async removeAccount(organizationId: string, accountId: string): Promise<void> {
+    const accounts = await this.listAccounts(organizationId);
     const removedAccount = accounts.find((account) => account.id === accountId);
     const nextAccounts = accounts.filter((account) => account.id !== accountId);
     await Promise.all([
-      this.metadataStore.setAccounts(nextAccounts),
-      this.secretStore.deleteSecret(this.tokenSecretKey(accountId)),
+      this.metadataStore.setAccounts(organizationId, nextAccounts),
+      this.secretStore.deleteSecret(this.tokenSecretKey(organizationId, accountId)),
     ]);
     if (removedAccount?.credentialSource === 'cli') {
-      await this.addRemovedCliAccount(removedAccount);
+      await this.addRemovedCliAccount(organizationId, removedAccount);
     }
-    const defaultAccountId = await this.metadataStore.getDefaultAccountId();
+    const defaultAccountId = await this.metadataStore.getDefaultAccountId(organizationId);
     if (defaultAccountId === accountId) {
-      await this.metadataStore.setDefaultAccountId(this.oldestAccount(nextAccounts)?.id ?? null);
+      await this.metadataStore.setDefaultAccountId(
+        organizationId,
+        this.oldestAccount(nextAccounts)?.id ?? null
+      );
     }
   }
 
@@ -142,33 +156,46 @@ export class GitHubAccountRegistry {
     return normalizeRepositoryHost(host) || 'github.com';
   }
 
-  private tokenSecretKey(accountId: string): string {
-    return `github-account-token:${accountId}`;
+  private tokenSecretKey(organizationId: string, accountId: string): string {
+    return `github-account-token:${organizationId}:${accountId}`;
   }
 
-  private async ensureDefaultAccount(accounts: GitHubAccount[]): Promise<void> {
-    const defaultAccountId = await this.metadataStore.getDefaultAccountId();
+  private async ensureDefaultAccount(
+    organizationId: string,
+    accounts: GitHubAccount[]
+  ): Promise<void> {
+    const defaultAccountId = await this.metadataStore.getDefaultAccountId(organizationId);
     if (defaultAccountId && accounts.some((account) => account.id === defaultAccountId)) return;
-    await this.metadataStore.setDefaultAccountId(this.oldestAccount(accounts)?.id ?? null);
+    await this.metadataStore.setDefaultAccountId(
+      organizationId,
+      this.oldestAccount(accounts)?.id ?? null
+    );
   }
 
-  private async addRemovedCliAccount(account: GitHubAccount): Promise<void> {
+  private async addRemovedCliAccount(
+    organizationId: string,
+    account: GitHubAccount
+  ): Promise<void> {
     const tombstone: GitHubRemovedCliAccount = {
       accountId: account.id,
       host: this.normalizeHost(account.host),
       removedAt: Date.now(),
     };
-    const tombstones = await this.listRemovedCliAccounts();
-    await this.metadataStore.setRemovedCliAccounts([
+    const tombstones = await this.listRemovedCliAccounts(organizationId);
+    await this.metadataStore.setRemovedCliAccounts(organizationId, [
       ...tombstones.filter((candidate) => candidate.accountId !== account.id),
       tombstone,
     ]);
   }
 
-  private async clearRemovedCliAccount(accountId: string): Promise<void> {
-    const tombstones = await this.listRemovedCliAccounts();
+  private async clearRemovedCliAccount(
+    organizationId: string,
+    accountId: string
+  ): Promise<void> {
+    const tombstones = await this.listRemovedCliAccounts(organizationId);
     if (!tombstones.some((candidate) => candidate.accountId === accountId)) return;
     await this.metadataStore.setRemovedCliAccounts(
+      organizationId,
       tombstones.filter((candidate) => candidate.accountId !== accountId)
     );
   }

@@ -42,7 +42,7 @@ export class GitHubDeviceFlowService {
     }
   ) {}
 
-  async start(): Promise<GitHubDeviceFlowResult> {
+  async start(organizationId: string): Promise<GitHubDeviceFlowResult> {
     this.deviceFlowAbortController = new AbortController();
     const { signal } = this.deviceFlowAbortController;
 
@@ -77,7 +77,7 @@ export class GitHubDeviceFlowService {
         return { success: false, error: message };
       }
 
-      const account = await this.deps.accountRegistry.upsertAccount({
+      const account = await this.deps.accountRegistry.upsertAccount(organizationId, {
         accessToken: token,
         credentialSource: 'device_flow',
         providerAccount: {

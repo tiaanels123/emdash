@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
+import { useActiveOrganizationId } from '@renderer/features/organizations/stores/organization-selectors';
 import { rpc } from '@renderer/lib/ipc';
 import type { ComboboxSelectOption } from '@renderer/lib/ui/combobox-popover';
 
@@ -15,9 +16,10 @@ export function useGitHubRepositoryOwnerSelect(githubAccountId: string | null) {
     owner: ComboboxSelectOption;
   } | null>(null);
 
+  const organizationId = useActiveOrganizationId();
   const query = useQuery({
-    queryKey: ['owners', githubAccountId],
-    queryFn: () => rpc.github.getOwners(githubAccountId ?? undefined),
+    queryKey: ['owners', organizationId, githubAccountId],
+    queryFn: () => rpc.github.getOwners(organizationId, githubAccountId ?? undefined),
     enabled: githubAccountId !== null,
   });
 

@@ -1,5 +1,6 @@
 import type { GitHubApiAuthContext } from '@main/core/github/services/github-api-auth-service';
 import type { ProjectSettingsProvider } from '@main/core/projects/settings/provider';
+import { getProjectOrganizationId } from '@main/core/projects/operations/getProjects';
 import { err, ok, type Result } from '@shared/lib/result';
 
 export type ProjectGitHubAuthContextError =
@@ -61,6 +62,7 @@ export class ProjectGitHubAuthContextResolver {
     }
 
     try {
+      const organizationId = await getProjectOrganizationId(projectId);
       const settings = await project.settings.get();
       if (!Object.hasOwn(settings, 'githubAccountId')) {
         return err({
@@ -86,7 +88,7 @@ export class ProjectGitHubAuthContextResolver {
           message: 'No GitHub account is configured for this project.',
         });
       }
-      return ok({ accountId });
+      return ok({ organizationId, accountId });
     } catch (error) {
       const message = errorMessage(error);
       this.deps.logger.warn('Failed to resolve project GitHub account selection', {

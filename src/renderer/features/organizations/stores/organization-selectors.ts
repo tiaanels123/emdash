@@ -1,3 +1,5 @@
+import { reaction } from 'mobx';
+import { useSyncExternalStore } from 'react';
 import { appState } from '@renderer/lib/stores/app-state';
 import { type Organization, PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import type { OrganizationManagerStore } from './organization-manager';
@@ -21,4 +23,17 @@ export function getActiveOrganization(): Organization | null {
  */
 export function getActiveOrganizationId(): string {
   return getOrganizationManagerStore().activeId ?? PERSONAL_ORGANIZATION_ID;
+}
+
+/**
+ * Reactively subscribes to the active organization id. Use this in React
+ * components/hooks (e.g. to scope react-query keys) so they re-render and
+ * refetch when the active organization changes, without requiring the whole
+ * component to be a MobX `observer`.
+ */
+export function useActiveOrganizationId(): string {
+  return useSyncExternalStore(
+    (onChange) => reaction(() => getActiveOrganizationId(), onChange),
+    () => getActiveOrganizationId()
+  );
 }

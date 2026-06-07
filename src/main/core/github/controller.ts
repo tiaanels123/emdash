@@ -24,9 +24,9 @@ import type {
 import { createRPCController } from '@shared/lib/ipc/rpc';
 
 export const githubController = createRPCController({
-  getAccountState: async (): Promise<GitHubAccountState> => {
+  getAccountState: async (organizationId: string): Promise<GitHubAccountState> => {
     try {
-      const accounts = await githubAccountService.listAccounts();
+      const accounts = await githubAccountService.listAccounts(organizationId);
       return {
         connected: accounts.length > 0,
         accounts,
@@ -38,10 +38,10 @@ export const githubController = createRPCController({
     }
   },
 
-  auth: async (): Promise<GitHubAuthResponse> => {
+  auth: async (organizationId: string): Promise<GitHubAuthResponse> => {
     let result: Awaited<ReturnType<typeof githubDeviceFlowService.start>>;
     try {
-      result = await githubDeviceFlowService.start();
+      result = await githubDeviceFlowService.start(organizationId);
     } catch (error) {
       log.error('GitHub authentication failed:', error);
       events.emit(githubAuthErrorChannel, {
@@ -54,7 +54,7 @@ export const githubController = createRPCController({
     if (!result.success) return result;
 
     try {
-      const accountSummary = (await githubAccountService.listAccounts()).find(
+      const accountSummary = (await githubAccountService.listAccounts(organizationId)).find(
         (candidate) => candidate.accountId === result.account.id
       );
       if (!accountSummary) {
@@ -77,18 +77,18 @@ export const githubController = createRPCController({
     }
   },
 
-  listAccounts: async (): Promise<GitHubAccountSummary[]> => {
+  listAccounts: async (organizationId: string): Promise<GitHubAccountSummary[]> => {
     try {
-      return await githubAccountService.listAccounts();
+      return await githubAccountService.listAccounts(organizationId);
     } catch (error) {
       log.error('Failed to list GitHub accounts:', error);
       return [];
     }
   },
 
-  importCliAccounts: async (): Promise<GitHubImportCliAccountsResponse> => {
+  importCliAccounts: async (organizationId: string): Promise<GitHubImportCliAccountsResponse> => {
     try {
-      const result = await githubAccountService.importCliAccounts();
+      const result = await githubAccountService.importCliAccounts(organizationId);
       if (result.importedAccountIds.length > 0) {
         telemetryService.capture('integration_connected', { provider: 'github', source: 'cli' });
       }
@@ -99,9 +99,12 @@ export const githubController = createRPCController({
     }
   },
 
-  setDefaultAccount: async (accountId: string): Promise<GitHubSetDefaultAccountResponse> => {
+  setDefaultAccount: async (
+    organizationId: string,
+    accountId: string
+  ): Promise<GitHubSetDefaultAccountResponse> => {
     try {
-      const account = await githubAccountService.setDefaultAccount(accountId);
+      const account = await githubAccountService.setDefaultAccount(organizationId, accountId);
       if (!account) return { success: false, error: 'GitHub account not found' };
       return { success: true, account };
     } catch (error) {
@@ -110,9 +113,12 @@ export const githubController = createRPCController({
     }
   },
 
-  removeAccount: async (accountId: string): Promise<GitHubRemoveAccountResponse> => {
+  removeAccount: async (
+    organizationId: string,
+    accountId: string
+  ): Promise<GitHubRemoveAccountResponse> => {
     try {
-      const accounts = await githubAccountService.removeAccount(accountId);
+      const accounts = await githubAccountService.removeAccount(organizationId, accountId);
       if (!accounts) return { success: false, error: 'GitHub account not found' };
       telemetryService.capture('integration_disconnected', { provider: 'github' });
       return { success: true, accounts };
@@ -134,18 +140,18 @@ export const githubController = createRPCController({
 
   // -- Repositories --------------------------------------------------------
 
-  getRepositories: async (accountId?: string) => {
+  getRepositories: async (organizationId: string, accountId?: string) => {
     try {
-      return await repoService.listRepositories({ accountId });
+      return await repoService.listRepositories({ organizationId, accountId });
     } catch (error) {
       log.error('Failed to get repositories:', error);
       return [];
     }
   },
 
-  getOwners: async (accountId?: string) => {
+  getOwners: async (organizationId: string, accountId?: string) => {
     try {
-      const owners = await repoService.getOwners({ accountId });
+      const owners = await repoService.getOwners({ organizationId, accountId });
       return { success: true, owners };
     } catch (error) {
       log.error('Failed to get owners:', error);
@@ -156,14 +162,17 @@ export const githubController = createRPCController({
     }
   },
 
-  createRepository: async (params: {
-    name: string;
-    owner: string;
-    description?: string;
-    isPrivate?: boolean;
-    visibility?: 'public' | 'private';
-    accountId?: string | null;
-  }) => {
+  createRepository: async (
+    organizationId: string,
+    params: {
+      name: string;
+      owner: string;
+      description?: string;
+      isPrivate?: boolean;
+      visibility?: 'public' | 'private';
+      accountId?: string | null;
+    }
+  ) => {
     try {
       const isPrivate = params.isPrivate ?? params.visibility === 'private';
       const repoInfo = await repoService.createRepository({
@@ -171,7 +180,7 @@ export const githubController = createRPCController({
         owner: params.owner,
         description: params.description,
         isPrivate,
-        authContext: { accountId: params.accountId ?? undefined },
+        authContext: { organizationId, accountId: params.accountId ?? undefined },
       });
       return {
         success: true,
@@ -189,9 +198,13 @@ export const githubController = createRPCController({
     }
   },
 
-  deleteRepository: async (params: { owner: string; name: string; accountId?: string | null }) => {
+  deleteRepository: async (
+    organizationId: string,
+    params: { owner: string; name: string; accountId?: string | null }
+  ) => {
     try {
       await repoService.deleteRepository(params.owner, params.name, {
+        organizationId,
         accountId: params.accountId ?? undefined,
       });
       return { success: true };

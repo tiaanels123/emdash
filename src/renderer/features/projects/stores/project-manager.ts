@@ -214,7 +214,7 @@ export class ProjectManagerStore {
 
       case 'new': {
         try {
-          const repoResult = await rpc.github.createRepository({
+          const repoResult = await rpc.github.createRepository(getActiveOrganizationId(), {
             name: data.repositoryName,
             owner: data.repositoryOwner,
             isPrivate: data.repositoryVisibility === 'private',
@@ -425,7 +425,7 @@ export class ProjectManagerStore {
   ): Promise<void> {
     try {
       const { owner, repo } = splitNameWithOwner(nameWithOwner);
-      const result = await rpc.github.deleteRepository({
+      const result = await rpc.github.deleteRepository(getActiveOrganizationId(), {
         owner,
         name: repo,
         accountId: githubAccountId ?? undefined,

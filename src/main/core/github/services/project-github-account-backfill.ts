@@ -1,3 +1,4 @@
+import { getProjectOrganizationId } from '@main/core/projects/operations/getProjects';
 import type { ProjectSettings } from '@shared/core/project-settings/project-settings';
 import type { Result } from '@shared/lib/result';
 import { normalizeRepositoryHost, parseRepositoryRef } from '@shared/repository-ref';
@@ -38,18 +39,22 @@ export class ProjectGitHubAccountBackfillService {
     const repository = parseRepositoryRef(remoteState.selectedRemoteUrl);
     if (!repository) return { status: 'skipped' };
 
-    const accountId = await this.selectAccountIdForHost(repository.host);
+    const organizationId = await getProjectOrganizationId(project.projectId);
+    const accountId = await this.selectAccountIdForHost(organizationId, repository.host);
     if (!accountId) return { status: 'skipped' };
 
     const result = await project.settings.patch({ githubAccountId: accountId });
     return result.success ? { status: 'updated', accountId } : { status: 'skipped' };
   }
 
-  private async selectAccountIdForHost(host: string): Promise<string | null> {
+  private async selectAccountIdForHost(
+    organizationId: string,
+    host: string
+  ): Promise<string | null> {
     const normalizedHost = normalizeRepositoryHost(host);
     const [accounts, defaultAccountId] = await Promise.all([
-      this.accountLookup.listAccounts(),
-      this.accountLookup.getDefaultAccountId(),
+      this.accountLookup.listAccounts(organizationId),
+      this.accountLookup.getDefaultAccountId(organizationId),
     ]);
     const hostAccounts = accounts.filter(
       (account) => normalizeRepositoryHost(account.host) === normalizedHost

@@ -53,13 +53,18 @@ export class GitHubCliAccountImportService {
     private readonly identityClient: GitHubIdentityClient
   ) {}
 
-  async importAccounts(options: GitHubCliAccountImportOptions = {}): Promise<GitHubAccount[]> {
+  async importAccounts(
+    organizationId: string,
+    options: GitHubCliAccountImportOptions = {}
+  ): Promise<GitHubAccount[]> {
     const stdout = await this.readCliStatus();
     if (!stdout) return [];
 
     const removedAccountIds = options.skipRemovedAccounts
       ? new Set(
-          (await this.accountRegistry.listRemovedCliAccounts()).map((account) => account.accountId)
+          (await this.accountRegistry.listRemovedCliAccounts(organizationId)).map(
+            (account) => account.accountId
+          )
         )
       : new Set<string>();
     const imported: GitHubAccount[] = [];
@@ -76,7 +81,7 @@ export class GitHubCliAccountImportService {
       if (removedAccountIds.has(accountId)) continue;
 
       imported.push(
-        await this.accountRegistry.upsertAccount({
+        await this.accountRegistry.upsertAccount(organizationId, {
           accessToken: token,
           credentialSource: 'cli',
           providerAccount: {

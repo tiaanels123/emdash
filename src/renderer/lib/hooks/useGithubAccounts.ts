@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { getActiveOrganizationId, useActiveOrganizationId } from '@renderer/features/organizations/stores/organization-selectors';
 import { rpc } from '@renderer/lib/ipc';
 
 export const GITHUB_ACCOUNTS_QUERY_KEY = ['github:accounts'] as const;
@@ -12,9 +13,10 @@ function invalidateGitHubAccountState(queryClient: ReturnType<typeof useQueryCli
 }
 
 export function useGitHubAccounts() {
+  const organizationId = useActiveOrganizationId();
   return useQuery({
-    queryKey: GITHUB_ACCOUNTS_QUERY_KEY,
-    queryFn: () => rpc.github.listAccounts(),
+    queryKey: [...GITHUB_ACCOUNTS_QUERY_KEY, organizationId],
+    queryFn: () => rpc.github.listAccounts(organizationId),
     staleTime: 30_000,
     refetchOnWindowFocus: true,
   });
@@ -23,7 +25,7 @@ export function useGitHubAccounts() {
 export function useImportGitHubCliAccounts() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => rpc.github.importCliAccounts(),
+    mutationFn: () => rpc.github.importCliAccounts(getActiveOrganizationId()),
     onSuccess: () => invalidateGitHubAccountState(queryClient),
   });
 }
@@ -31,7 +33,7 @@ export function useImportGitHubCliAccounts() {
 export function useGitHubDeviceFlowAuth() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => rpc.github.auth(),
+    mutationFn: () => rpc.github.auth(getActiveOrganizationId()),
     onSettled: () => invalidateGitHubAccountState(queryClient),
   });
 }
@@ -39,7 +41,8 @@ export function useGitHubDeviceFlowAuth() {
 export function useSetDefaultGitHubAccount() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (accountId: string) => rpc.github.setDefaultAccount(accountId),
+    mutationFn: (accountId: string) =>
+      rpc.github.setDefaultAccount(getActiveOrganizationId(), accountId),
     onSuccess: () => invalidateGitHubAccountState(queryClient),
   });
 }
@@ -47,7 +50,8 @@ export function useSetDefaultGitHubAccount() {
 export function useRemoveGitHubAccount() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (accountId: string) => rpc.github.removeAccount(accountId),
+    mutationFn: (accountId: string) =>
+      rpc.github.removeAccount(getActiveOrganizationId(), accountId),
     onSuccess: () => invalidateGitHubAccountState(queryClient),
   });
 }
