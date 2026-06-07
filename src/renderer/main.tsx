@@ -16,6 +16,7 @@ import { wirePrCacheInvalidation } from '@renderer/lib/pr-cache-invalidation';
 import { viewStateCache } from '@renderer/lib/stores/view-state-cache';
 import { log } from '@renderer/utils/logger';
 import { initSoundPlayer } from '@renderer/utils/soundPlayer';
+import type { OrganizationManagerSnapshot } from '@renderer/features/organizations/stores/organization-manager';
 import type { NavigationSnapshot, SidebarSnapshot } from '@shared/view-state';
 import { App } from './App';
 import { ErrorBoundary } from './lib/components/error-boundary';
@@ -33,7 +34,7 @@ async function bootstrap() {
   // Initialize Monaco and load app data in parallel. Awaiting Monaco here
   // guarantees __monaco is set before React renders, so StickyDiffEditor can
   // create editors synchronously on mount without any async coordination.
-  const [, , navResult, sidebarResult, allViewState] = await Promise.all([
+  const [, , navResult, sidebarResult, orgResult, allViewState] = await Promise.all([
     codeEditorPool.init(0).catch((error: unknown) => {
       log.warn('[monaco-code-pool] init failed:', error);
     }),
@@ -42,7 +43,9 @@ async function bootstrap() {
     }),
     rpc.viewState.get('navigation') as Promise<NavigationSnapshot> | null,
     rpc.viewState.get('sidebar'),
+    rpc.viewState.get('organizations') as Promise<OrganizationManagerSnapshot> | null,
     rpc.viewState.getAll(),
+    appState.organizations.load(),
     appState.projects.load(),
     prefetchAppSettingsKey('interface'),
   ]);
@@ -51,6 +54,7 @@ async function bootstrap() {
 
   setupNavigationGuards();
   if (navResult) appState.navigation.restoreSnapshot(navResult);
+  if (orgResult) appState.organizations.restoreSnapshot(orgResult);
   setupAppCommandProvider();
   setupViewCommandProvider();
   if (sidebarResult) {

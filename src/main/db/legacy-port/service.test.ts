@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import { runLegacyPort, type LegacyPortStateStore } from './service';
 
 function createAppDb(): Database.Database {
@@ -31,6 +32,7 @@ function createAppDb(): Database.Database {
 
     CREATE TABLE projects (
       id TEXT PRIMARY KEY,
+      organization_id TEXT NOT NULL DEFAULT '${PERSONAL_ORGANIZATION_ID}',
       name TEXT NOT NULL,
       path TEXT NOT NULL UNIQUE,
       workspace_provider TEXT NOT NULL DEFAULT 'local',
@@ -304,6 +306,7 @@ describe('runLegacyPort', () => {
 
       CREATE TABLE projects (
         id TEXT PRIMARY KEY,
+        organization_id TEXT NOT NULL DEFAULT '${PERSONAL_ORGANIZATION_ID}',
         name TEXT NOT NULL,
         path TEXT NOT NULL UNIQUE,
         workspace_provider TEXT NOT NULL DEFAULT 'local',

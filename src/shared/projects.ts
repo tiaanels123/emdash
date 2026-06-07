@@ -6,6 +6,8 @@ export type ProjectPathStatus = {
 export type LocalProject = {
   type: 'local';
   id: string;
+  /** The organization this project belongs to. */
+  organizationId: string;
   name: string;
   path: string;
   baseRef: string;
@@ -18,6 +20,8 @@ export type LocalProject = {
 export type SshProject = {
   type: 'ssh';
   id: string;
+  /** The organization this project belongs to. */
+  organizationId: string;
   name: string;
   path: string;
   baseRef: string;
@@ -33,6 +37,8 @@ export type Project = LocalProject | SshProject;
 export type CreateLocalProjectParams = {
   type: 'local';
   id?: string;
+  /** The organization the new project belongs to. */
+  organizationId: string;
   path: string;
   name: string;
   initGitRepository?: boolean;
@@ -41,6 +47,8 @@ export type CreateLocalProjectParams = {
 export type CreateSshProjectParams = {
   type: 'ssh';
   id?: string;
+  /** The organization the new project belongs to. */
+  organizationId: string;
   name: string;
   path: string;
   connectionId: string;

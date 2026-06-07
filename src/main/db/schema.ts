@@ -20,6 +20,7 @@ import { sshConnectionMetadata } from '@shared/core/ssh/ssh-connection-metadata'
 import type { TerminalShellId } from '@shared/core/terminals/terminal-settings';
 import { workspaceConfig } from '@shared/core/workspaces/workspace-config';
 import { workspaceProviderData } from '@shared/core/workspaces/workspace-provider-data';
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 
 export const sshConnections = sqliteTable(
   'ssh_connections',
@@ -46,10 +47,68 @@ export const sshConnections = sqliteTable(
   })
 );
 
+/**
+ * The top-level entity grouping projects (repositories). Each organization owns
+ * its own integration credentials and provider configuration. Every project
+ * belongs to exactly one organization.
+ */
+export const organizations = sqliteTable(
+  'organizations',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    color: text('color'),
+    icon: text('icon'),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: text('created_at')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text('updated_at')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    sortOrderIdx: index('idx_organizations_sort_order').on(table.sortOrder),
+  })
+);
+
+/**
+ * Org-scoped non-secret settings (e.g. per-organization provider config).
+ * Keyed by (organization_id, key); deleting an organization removes its
+ * settings. Mirrors the app_settings key/value shape with an org dimension.
+ */
+export const organizationSettings = sqliteTable(
+  'organization_settings',
+  {
+    organizationId: text('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    key: text('key').notNull(),
+    value: text('value').notNull(),
+    updatedAt: integer('updated_at')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.organizationId, table.key] }),
+  })
+);
+
 export const projects = sqliteTable(
   'projects',
   {
     id: text('id').primaryKey(),
+    /**
+     * Owning organization. Defaults to the Personal organization so existing
+     * rows are backfilled by the schema migration's ADD COLUMN.
+     *
+     * Intentionally NOT a declared foreign key: SQLite forbids `ALTER TABLE ADD
+     * COLUMN` with a REFERENCES clause and a non-NULL default, and foreign keys
+     * are not enforced at runtime anyway. The relationship is upheld by the data
+     * migration (every project gets a real org id) and deletion of a non-empty
+     * organization is blocked in the operation layer.
+     */
+    organizationId: text('organization_id').notNull().default(PERSONAL_ORGANIZATION_ID),
     name: text('name').notNull(),
     path: text('path').notNull(),
     workspaceProvider: text('workspace_provider').notNull().default('local'), // 'local' | 'ssh'
@@ -69,6 +128,7 @@ export const projects = sqliteTable(
   (table) => ({
     pathIdx: uniqueIndex('idx_projects_path').on(table.path),
     sshConnectionIdIdx: index('idx_projects_ssh_connection_id').on(table.sshConnectionId),
+    organizationIdIdx: index('idx_projects_organization_id').on(table.organizationId),
   })
 );
 
@@ -482,7 +542,12 @@ export const appSecrets = sqliteTable(
 
 export type SshConnectionRow = typeof sshConnections.$inferSelect;
 export type SshConnectionInsert = typeof sshConnections.$inferInsert;
+export type OrganizationRow = typeof organizations.$inferSelect;
+export type OrganizationInsert = typeof organizations.$inferInsert;
+export type OrganizationSettingsRow = typeof organizationSettings.$inferSelect;
+export type OrganizationSettingsInsert = typeof organizationSettings.$inferInsert;
 export type ProjectRow = typeof projects.$inferSelect;
+export type ProjectInsert = typeof projects.$inferInsert;
 export type AutomationRow = typeof automations.$inferSelect;
 export type AutomationRunRow = typeof automationRuns.$inferSelect;
 export type ProjectSettingsRow = typeof projectSettings.$inferSelect;

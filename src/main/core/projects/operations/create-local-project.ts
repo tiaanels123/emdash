@@ -7,12 +7,15 @@ import { projectEvents } from '@main/core/projects/project-events';
 import { projectManager } from '@main/core/projects/project-manager';
 import { db } from '@main/db/client';
 import { projects } from '@main/db/schema';
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import type { LocalProject, ProjectPathStatus } from '@shared/projects';
 import { checkIsValidDirectory } from '../path-utils';
 import { ensureGitRepository, resolveProjectBaseRef } from './create-project-utils';
 
 export type CreateLocalProjectParams = {
   id?: string;
+  /** Owning organization; defaults to the Personal organization when omitted. */
+  organizationId?: string;
   path: string;
   name: string;
   initGitRepository?: boolean;
@@ -34,6 +37,7 @@ export async function createLocalProject(params: CreateLocalProjectParams): Prom
     .insert(projects)
     .values({
       id: params.id ?? randomUUID(),
+      organizationId: params.organizationId ?? PERSONAL_ORGANIZATION_ID,
       name: params.name,
       path: gitInfo.rootPath,
       workspaceProvider: 'local',
@@ -45,6 +49,7 @@ export async function createLocalProject(params: CreateLocalProjectParams): Prom
   const project = {
     type: 'local' as const,
     id: row.id,
+    organizationId: row.organizationId,
     name: row.name,
     path: row.path,
     baseRef: row.baseRef ?? baseRef,

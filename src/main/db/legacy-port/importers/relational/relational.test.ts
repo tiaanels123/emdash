@@ -5,6 +5,7 @@ import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 import { makeTmuxSessionName } from '@main/core/pty/tmux-session-name';
 import { makePtySessionId } from '@shared/core/pty/ptySessionId';
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import { createDrizzleClient } from '../../../drizzleClient';
 import { portConversations } from './conversations';
 import { portProjects } from './projects';
@@ -35,6 +36,7 @@ function createAppDb(): {
 
     CREATE TABLE projects (
       id TEXT PRIMARY KEY,
+      organization_id TEXT NOT NULL DEFAULT '${PERSONAL_ORGANIZATION_ID}',
       name TEXT NOT NULL,
       path TEXT NOT NULL UNIQUE,
       workspace_provider TEXT NOT NULL DEFAULT 'local',

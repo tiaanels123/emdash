@@ -10,6 +10,7 @@ import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { Badge } from '@renderer/lib/ui/badge';
 import { BoundShortcut } from '@renderer/lib/ui/shortcut';
 import { cn } from '@renderer/utils/utils';
+import { OrganizationSwitcher } from '@renderer/features/organizations/components/OrganizationSwitcher';
 import { SidebarPinnedTaskList } from './pinned-task-list';
 import { ProjectsGroupLabel } from './projects-group-label';
 import {
@@ -52,6 +53,7 @@ export const LeftSidebar: React.FC = observer(function LeftSidebar() {
         </div>
       )}
       <SidebarSpace />
+      <OrganizationSwitcher />
       <SidebarContainer className="min-h-0 w-full flex-1 border-r-0">
         <SidebarContent className="flex flex-col">
           <SidebarPinnedTaskList />

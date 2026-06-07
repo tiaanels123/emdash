@@ -1,4 +1,5 @@
 import { makeObservable, observable, runInAction } from 'mobx';
+import { getActiveOrganizationId } from '@renderer/features/organizations/stores/organization-selectors';
 import { events, rpc } from '@renderer/lib/ipc';
 import { appState } from '@renderer/lib/stores/app-state';
 import { viewStateCache } from '@renderer/lib/stores/view-state-cache';
@@ -132,6 +133,7 @@ export class ProjectManagerStore {
             ? await rpc.projects.createProject({
                 type: 'ssh',
                 id: projectId,
+                organizationId: getActiveOrganizationId(),
                 path: targetPath,
                 name: data.name,
                 connectionId: projectType.connectionId,
@@ -140,6 +142,7 @@ export class ProjectManagerStore {
             : await rpc.projects.createProject({
                 type: 'local',
                 id: projectId,
+                organizationId: getActiveOrganizationId(),
                 path: targetPath,
                 name: data.name,
                 initGitRepository: data.initGitRepository,
@@ -179,6 +182,7 @@ export class ProjectManagerStore {
             ? await rpc.projects.createProject({
                 type: 'ssh',
                 id: projectId,
+                organizationId: getActiveOrganizationId(),
                 path: targetPath,
                 name: data.name,
                 connectionId: projectType.connectionId,
@@ -186,6 +190,7 @@ export class ProjectManagerStore {
             : await rpc.projects.createProject({
                 type: 'local',
                 id: projectId,
+                organizationId: getActiveOrganizationId(),
                 path: targetPath,
                 name: data.name,
               });
@@ -472,6 +477,7 @@ export class ProjectManagerStore {
         ? await rpc.projects.createProject({
             type: 'ssh',
             id: opts.projectId,
+            organizationId: getActiveOrganizationId(),
             path: opts.targetPath,
             name: opts.name,
             connectionId: opts.projectType.connectionId,
@@ -479,6 +485,7 @@ export class ProjectManagerStore {
         : await rpc.projects.createProject({
             type: 'local',
             id: opts.projectId,
+            organizationId: getActiveOrganizationId(),
             path: opts.targetPath,
             name: opts.name,
           });

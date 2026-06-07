@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import type { LocalProject } from '@shared/projects';
 import { isUnregisteredProject } from './project';
 import { ProjectManagerStore } from './project-manager';
@@ -45,6 +46,9 @@ vi.mock('@renderer/lib/stores/app-state', () => ({
       revalidate: vi.fn(),
       viewParamsStore: {},
     },
+    organizations: {
+      activeId: PERSONAL_ORGANIZATION_ID,
+    },
   },
 }));
 
@@ -62,6 +66,7 @@ function localProject(overrides: Partial<LocalProject> = {}): LocalProject {
   return {
     type: 'local',
     id: 'project-id',
+    organizationId: PERSONAL_ORGANIZATION_ID,
     name: 'Project',
     path: '/project',
     baseRef: 'main',

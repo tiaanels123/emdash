@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import { ensureRepositoryWorkspace } from './ensure-repository-workspace';
 
 const mocks = vi.hoisted(() => ({
@@ -22,6 +23,7 @@ vi.mock('@main/lib/logger', () => ({
 const localProject = {
   type: 'local' as const,
   id: 'project-1',
+  organizationId: PERSONAL_ORGANIZATION_ID,
   name: 'My Project',
   path: '/home/user/project',
   baseRef: 'main',
@@ -33,6 +35,7 @@ const localProject = {
 const sshProject = {
   type: 'ssh' as const,
   id: 'project-2',
+  organizationId: PERSONAL_ORGANIZATION_ID,
   name: 'SSH Project',
   path: '/home/user/project',
   baseRef: 'main',
