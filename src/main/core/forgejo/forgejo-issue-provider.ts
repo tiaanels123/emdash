@@ -7,6 +7,7 @@ import {
 import type { IssueProvider } from '@main/core/issues/issue-provider';
 import type { LinkedIssue } from '@shared/core/linked-issue';
 import { ISSUE_PROVIDER_CAPABILITIES, type IssueListResult } from '@shared/issue-providers';
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import { forgejoConnectionService, toForgejoErrorMessage } from './forgejo-connection-service';
 
 function toIssue(issue: ForgejoIssue, repoName: string): LinkedIssue {
@@ -29,6 +30,7 @@ function toIssue(issue: ForgejoIssue, repoName: string): LinkedIssue {
 }
 
 async function listIssues(
+  organizationId: string,
   projectPath: string,
   remoteName: string | undefined,
   limit: number
@@ -37,6 +39,7 @@ async function listIssues(
 
   try {
     const { client, owner, repo, repoName } = await forgejoConnectionService.resolveRepo(
+      organizationId,
       projectPath,
       remoteName
     );
@@ -61,6 +64,7 @@ async function listIssues(
 }
 
 async function searchIssues(
+  organizationId: string,
   projectPath: string,
   remoteName: string | undefined,
   searchTerm: string,
@@ -75,6 +79,7 @@ async function searchIssues(
 
   try {
     const { client, owner, repo, repoName } = await forgejoConnectionService.resolveRepo(
+      organizationId,
       projectPath,
       remoteName
     );
@@ -108,7 +113,7 @@ export const forgejoIssueProvider: IssueProvider = {
   type: 'forgejo',
   capabilities: ISSUE_PROVIDER_CAPABILITIES.forgejo,
 
-  checkConnection: () => forgejoConnectionService.checkConnection(),
+  checkConnection: (organizationId) => forgejoConnectionService.checkConnection(organizationId),
 
   listIssues: async (opts) => {
     const projectPath = requireProjectPath(opts.projectPath);
@@ -116,7 +121,12 @@ export const forgejoIssueProvider: IssueProvider = {
       return { success: false, error: 'Project path is required.' };
     }
 
-    return listIssues(projectPath, opts.remote, opts.limit ?? 50);
+    return listIssues(
+      opts.organizationId ?? PERSONAL_ORGANIZATION_ID,
+      projectPath,
+      opts.remote,
+      opts.limit ?? 50
+    );
   },
 
   searchIssues: async (opts) => {
@@ -125,6 +135,12 @@ export const forgejoIssueProvider: IssueProvider = {
       return { success: false, error: 'Project path is required.' };
     }
 
-    return searchIssues(projectPath, opts.remote, opts.searchTerm, opts.limit ?? 20);
+    return searchIssues(
+      opts.organizationId ?? PERSONAL_ORGANIZATION_ID,
+      projectPath,
+      opts.remote,
+      opts.searchTerm,
+      opts.limit ?? 20
+    );
   },
 };

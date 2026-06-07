@@ -1,5 +1,6 @@
 import { mapWithConcurrency } from '@main/core/issues/helpers/map-with-concurrency';
 import { encryptedAppSecretsStore } from '@main/core/secrets/encrypted-app-secrets-store';
+import { orgScopedSecretKey } from '@main/core/secrets/org-scoped-secret-key';
 import { log } from '@main/lib/logger';
 import { telemetryService } from '@main/lib/telemetry';
 import { ISSUE_PROVIDER_CAPABILITIES, type ConnectionStatus } from '@shared/issue-providers';
@@ -70,9 +71,19 @@ function toTrelloApiErrorMessage(status: number, apiMessage?: string): string {
 }
 
 export class TrelloConnectionService {
-  private cachedCredentials: TrelloCredentials | null | undefined = undefined;
+  // Cached credentials are keyed by organization id so each organization keeps
+  // its own Trello credential. Tri-state semantics: a missing entry means the
+  // org's secret has not been loaded yet, `null` means loaded-but-absent, and a
+  // value means loaded-and-present. The secret key is org-scoped via
+  // `secretKey(orgId)` so reads/writes/deletes only touch that org's blob.
+  private readonly cachedCredentials = new Map<string, TrelloCredentials | null>();
+
+  private secretKey(organizationId: string): string {
+    return orgScopedSecretKey(organizationId, CREDENTIALS_KEY);
+  }
 
   async saveCredentials(
+    organizationId: string,
     input: SaveCredentialsInput
   ): Promise<{ success: boolean; displayName?: string; error?: string }> {
     const apiKey = input.apiKey.trim();
@@ -100,7 +111,7 @@ export class TrelloConnectionService {
       const me = await this.fetchMe(auth);
       const boardIds = await this.resolveBoardIds(auth, boardShortLinks);
       const credentials: TrelloCredentials = { apiKey, token, boardIds };
-      await this.storeCredentials(credentials);
+      await this.storeCredentials(organizationId, credentials);
       telemetryService.capture('integration_connected', { provider: 'trello' });
       return { success: true, displayName: me.fullName ?? me.username };
     } catch (error) {
@@ -112,10 +123,10 @@ export class TrelloConnectionService {
     }
   }
 
-  async clearCredentials(): Promise<{ success: boolean; error?: string }> {
+  async clearCredentials(organizationId: string): Promise<{ success: boolean; error?: string }> {
     try {
-      await encryptedAppSecretsStore.deleteSecret(CREDENTIALS_KEY);
-      this.cachedCredentials = null;
+      await encryptedAppSecretsStore.deleteSecret(this.secretKey(organizationId));
+      this.cachedCredentials.set(organizationId, null);
       telemetryService.capture('integration_disconnected', { provider: 'trello' });
       return { success: true };
     } catch (error) {
@@ -127,9 +138,9 @@ export class TrelloConnectionService {
     }
   }
 
-  async checkConnection(): Promise<ConnectionStatus> {
+  async checkConnection(organizationId: string): Promise<ConnectionStatus> {
     try {
-      const credentials = await this.getStoredCredentials();
+      const credentials = await this.getStoredCredentials(organizationId);
       if (!credentials) {
         return { connected: false, capabilities: ISSUE_PROVIDER_CAPABILITIES.trello };
       }
@@ -147,19 +158,20 @@ export class TrelloConnectionService {
     }
   }
 
-  async getStoredCredentials(): Promise<TrelloCredentials | null> {
-    if (this.cachedCredentials !== undefined) {
-      return this.cachedCredentials;
+  async getStoredCredentials(organizationId: string): Promise<TrelloCredentials | null> {
+    if (this.cachedCredentials.has(organizationId)) {
+      return this.cachedCredentials.get(organizationId) ?? null;
     }
 
     try {
-      const raw = await encryptedAppSecretsStore.getSecret(CREDENTIALS_KEY);
+      const raw = await encryptedAppSecretsStore.getSecret(this.secretKey(organizationId));
       if (!raw) {
-        this.cachedCredentials = null;
+        this.cachedCredentials.set(organizationId, null);
         return null;
       }
-      this.cachedCredentials = normalizeStoredCredentials(JSON.parse(raw));
-      return this.cachedCredentials;
+      const credentials = normalizeStoredCredentials(JSON.parse(raw));
+      this.cachedCredentials.set(organizationId, credentials);
+      return credentials;
     } catch (error) {
       log.error('Failed to read Trello credentials from secure storage:', error);
       return null;
@@ -223,10 +235,16 @@ export class TrelloConnectionService {
     return this.request<TrelloMember>(auth, '/members/me', { fields: 'fullName,username' });
   }
 
-  private async storeCredentials(credentials: TrelloCredentials): Promise<void> {
+  private async storeCredentials(
+    organizationId: string,
+    credentials: TrelloCredentials
+  ): Promise<void> {
     try {
-      await encryptedAppSecretsStore.setSecret(CREDENTIALS_KEY, JSON.stringify(credentials));
-      this.cachedCredentials = credentials;
+      await encryptedAppSecretsStore.setSecret(
+        this.secretKey(organizationId),
+        JSON.stringify(credentials)
+      );
+      this.cachedCredentials.set(organizationId, credentials);
     } catch (error) {
       log.error('Failed to store Trello credentials:', error);
       throw new Error('Unable to store Trello credentials securely.');

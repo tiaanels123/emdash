@@ -23,7 +23,11 @@ vi.mock('@main/lib/telemetry', () => ({
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import { TRELLO_API_ERROR_MESSAGES, TrelloConnectionService } from './trello-connection-service';
+
+const ORG_ID = PERSONAL_ORGANIZATION_ID;
+const CREDENTIALS_KEY = `emdash-trello-credentials:${ORG_ID}`;
 
 function jsonResponse(body: unknown): { ok: boolean; json: () => Promise<unknown> } {
   return { ok: true, json: async () => body };
@@ -44,11 +48,11 @@ describe('TrelloConnectionService', () => {
       );
 
       const input = { apiKey: 'key', token: 'valid-token', boardUrls: '' };
-      const result = await service.saveCredentials(input);
+      const result = await service.saveCredentials(ORG_ID, input);
 
       expect(result).toEqual({ success: true, displayName: 'Jan' });
       expect(mockSetSecret).toHaveBeenCalledWith(
-        'emdash-trello-credentials',
+        CREDENTIALS_KEY,
         JSON.stringify({ apiKey: input.apiKey, token: input.token, boardIds: [] })
       );
     });
@@ -56,7 +60,7 @@ describe('TrelloConnectionService', () => {
     it('sends the key and token as query parameters', async () => {
       mockFetch.mockResolvedValueOnce(jsonResponse({ id: 'member-1', fullName: 'Jan' }));
 
-      await service.saveCredentials({ apiKey: 'key', token: 'tok', boardUrls: '' });
+      await service.saveCredentials(ORG_ID, { apiKey: 'key', token: 'tok', boardUrls: '' });
 
       const url = mockFetch.mock.calls[0][0] as URL;
       expect(url.pathname).toBe('/1/members/me');
@@ -76,11 +80,11 @@ describe('TrelloConnectionService', () => {
         boardUrls:
           'https://trello.com/b/aBcD1234/my-board\nhttps://trello.com/b/eFgH5678, https://trello.com/b/aBcD1234',
       };
-      const result = await service.saveCredentials(input);
+      const result = await service.saveCredentials(ORG_ID, input);
 
       expect(result.success).toBe(true);
       expect(mockSetSecret).toHaveBeenCalledWith(
-        'emdash-trello-credentials',
+        CREDENTIALS_KEY,
         JSON.stringify({
           apiKey: input.apiKey,
           token: input.token,
@@ -90,7 +94,7 @@ describe('TrelloConnectionService', () => {
     });
 
     it('returns error for invalid board URL format', async () => {
-      const result = await service.saveCredentials({
+      const result = await service.saveCredentials(ORG_ID, {
         apiKey: 'key',
         token: 'valid-token',
         boardUrls: 'not-a-url',
@@ -109,7 +113,7 @@ describe('TrelloConnectionService', () => {
         (_, index) => `https://trello.com/b/board${index}`
       ).join('\n');
 
-      const result = await service.saveCredentials({
+      const result = await service.saveCredentials(ORG_ID, {
         apiKey: 'key',
         token: 'valid-token',
         boardUrls,
@@ -123,7 +127,11 @@ describe('TrelloConnectionService', () => {
     });
 
     it('returns error for empty API key or token', async () => {
-      const result = await service.saveCredentials({ apiKey: '  ', token: 'tok', boardUrls: '' });
+      const result = await service.saveCredentials(ORG_ID, {
+        apiKey: '  ',
+        token: 'tok',
+        boardUrls: '',
+      });
 
       expect(result).toEqual({
         success: false,
@@ -137,7 +145,7 @@ describe('TrelloConnectionService', () => {
         .mockResolvedValueOnce(jsonResponse({ id: 'member-1', fullName: 'Jan' }))
         .mockResolvedValueOnce({ ok: false, status: 404, text: async () => 'board not found' });
 
-      const result = await service.saveCredentials({
+      const result = await service.saveCredentials(ORG_ID, {
         apiKey: 'key',
         token: 'valid-token',
         boardUrls: 'https://trello.com/b/aBcD1234',
@@ -156,7 +164,7 @@ describe('TrelloConnectionService', () => {
         text: async () => 'invalid token',
       });
 
-      const result = await service.saveCredentials({
+      const result = await service.saveCredentials(ORG_ID, {
         apiKey: 'key',
         token: 'bad-token',
         boardUrls: '',
@@ -173,7 +181,7 @@ describe('TrelloConnectionService', () => {
     it('defaults missing board IDs to an empty list', async () => {
       mockGetSecret.mockResolvedValueOnce(JSON.stringify({ apiKey: 'key', token: 'tok' }));
 
-      const result = await service.getStoredCredentials();
+      const result = await service.getStoredCredentials(ORG_ID);
 
       expect(result).toEqual({ apiKey: 'key', token: 'tok', boardIds: [] });
     });
@@ -181,7 +189,7 @@ describe('TrelloConnectionService', () => {
     it('returns null for invalid stored credential shapes', async () => {
       mockGetSecret.mockResolvedValueOnce(JSON.stringify({ apiKey: 'key', token: 123 }));
 
-      const result = await service.getStoredCredentials();
+      const result = await service.getStoredCredentials(ORG_ID);
 
       expect(result).toBeNull();
     });
@@ -194,7 +202,7 @@ describe('TrelloConnectionService', () => {
         jsonResponse({ id: 'member-1', fullName: 'Jan', username: 'jan' })
       );
 
-      const result = await service.checkConnection();
+      const result = await service.checkConnection(ORG_ID);
 
       expect(result.connected).toBe(true);
       expect(result.displayName).toBe('Jan');
@@ -203,7 +211,7 @@ describe('TrelloConnectionService', () => {
     it('returns not connected when no stored credentials', async () => {
       mockGetSecret.mockResolvedValueOnce(null);
 
-      const result = await service.checkConnection();
+      const result = await service.checkConnection(ORG_ID);
 
       expect(result.connected).toBe(false);
     });
@@ -211,10 +219,10 @@ describe('TrelloConnectionService', () => {
 
   describe('clearCredentials', () => {
     it('deletes stored credentials', async () => {
-      const result = await service.clearCredentials();
+      const result = await service.clearCredentials(ORG_ID);
 
       expect(result).toEqual({ success: true });
-      expect(mockDeleteSecret).toHaveBeenCalledWith('emdash-trello-credentials');
+      expect(mockDeleteSecret).toHaveBeenCalledWith(CREDENTIALS_KEY);
     });
   });
 });

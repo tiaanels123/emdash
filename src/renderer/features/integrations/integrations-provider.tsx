@@ -1,5 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { observer } from 'mobx-react-lite';
 import React, { createContext, useCallback, useContext } from 'react';
+import { getActiveOrganizationId } from '@renderer/features/organizations/stores/organization-selectors';
 import { rpc } from '@renderer/lib/ipc';
 import {
   ISSUE_PROVIDER_CAPABILITIES,
@@ -61,61 +63,75 @@ function validateTrelloCredentials(input: {
 
 const PROVIDER_CONNECTION_CONFIG = {
   linear: {
-    connectMutationFn: (apiKey: string) => rpc.linear.saveToken(apiKey),
-    disconnectMutationFn: () => rpc.linear.clearToken(),
+    connectMutationFn: (organizationId: string, apiKey: string) =>
+      rpc.linear.saveToken(organizationId, apiKey),
+    disconnectMutationFn: (organizationId: string) => rpc.linear.clearToken(organizationId),
     fallbackError: DEFAULT_CONNECT_ERROR,
     validateInput: validateTokenInput,
   },
   jira: {
-    connectMutationFn: (credentials: { siteUrl: string; email: string; token: string }) =>
-      rpc.jira.saveCredentials(credentials),
-    disconnectMutationFn: () => rpc.jira.clearCredentials(),
+    connectMutationFn: (
+      organizationId: string,
+      credentials: { siteUrl: string; email: string; token: string }
+    ) => rpc.jira.saveCredentials(organizationId, credentials),
+    disconnectMutationFn: (organizationId: string) => rpc.jira.clearCredentials(organizationId),
     fallbackError: DEFAULT_CONNECT_ERROR,
     validateInput: validateJiraCredentials,
   },
   gitlab: {
-    connectMutationFn: (credentials: { instanceUrl: string; token: string }) =>
-      rpc.gitlab.saveCredentials(credentials),
-    disconnectMutationFn: () => rpc.gitlab.clearCredentials(),
+    connectMutationFn: (
+      organizationId: string,
+      credentials: { instanceUrl: string; token: string }
+    ) => rpc.gitlab.saveCredentials(organizationId, credentials),
+    disconnectMutationFn: (organizationId: string) => rpc.gitlab.clearCredentials(organizationId),
     fallbackError: DEFAULT_CONNECT_ERROR,
     validateInput: validateInstanceCredentials,
   },
   plain: {
-    connectMutationFn: (apiKey: string) => rpc.plain.saveToken(apiKey),
-    disconnectMutationFn: () => rpc.plain.clearToken(),
+    connectMutationFn: (organizationId: string, apiKey: string) =>
+      rpc.plain.saveToken(organizationId, apiKey),
+    disconnectMutationFn: (organizationId: string) => rpc.plain.clearToken(organizationId),
     fallbackError: DEFAULT_CONNECT_ERROR,
     validateInput: validateTokenInput,
   },
   forgejo: {
-    connectMutationFn: (credentials: { instanceUrl: string; token: string }) =>
-      rpc.forgejo.saveCredentials(credentials),
-    disconnectMutationFn: () => rpc.forgejo.clearCredentials(),
+    connectMutationFn: (
+      organizationId: string,
+      credentials: { instanceUrl: string; token: string }
+    ) => rpc.forgejo.saveCredentials(organizationId, credentials),
+    disconnectMutationFn: (organizationId: string) => rpc.forgejo.clearCredentials(organizationId),
     fallbackError: DEFAULT_CONNECT_ERROR,
     validateInput: validateInstanceCredentials,
   },
   featurebase: {
-    connectMutationFn: (apiKey: string) => rpc.featurebase.saveToken(apiKey),
-    disconnectMutationFn: () => rpc.featurebase.clearToken(),
+    connectMutationFn: (organizationId: string, apiKey: string) =>
+      rpc.featurebase.saveToken(organizationId, apiKey),
+    disconnectMutationFn: (organizationId: string) => rpc.featurebase.clearToken(organizationId),
     fallbackError: DEFAULT_CONNECT_ERROR,
     validateInput: validateTokenInput,
   },
   asana: {
-    connectMutationFn: (apiKey: string) => rpc.asana.saveToken(apiKey),
-    disconnectMutationFn: () => rpc.asana.clearToken(),
+    connectMutationFn: (organizationId: string, apiKey: string) =>
+      rpc.asana.saveToken(organizationId, apiKey),
+    disconnectMutationFn: (organizationId: string) => rpc.asana.clearToken(organizationId),
     fallbackError: DEFAULT_CONNECT_ERROR,
     validateInput: validateTokenInput,
   },
   monday: {
-    connectMutationFn: (credentials: { token: string; boardUrls: string }) =>
-      rpc.monday.saveCredentials(credentials),
-    disconnectMutationFn: () => rpc.monday.clearCredentials(),
+    connectMutationFn: (
+      organizationId: string,
+      credentials: { token: string; boardUrls: string }
+    ) => rpc.monday.saveCredentials(organizationId, credentials),
+    disconnectMutationFn: (organizationId: string) => rpc.monday.clearCredentials(organizationId),
     fallbackError: DEFAULT_CONNECT_ERROR,
     validateInput: validateMondayCredentials,
   },
   trello: {
-    connectMutationFn: (credentials: { apiKey: string; token: string; boardUrls: string }) =>
-      rpc.trello.saveCredentials(credentials),
-    disconnectMutationFn: () => rpc.trello.clearCredentials(),
+    connectMutationFn: (
+      organizationId: string,
+      credentials: { apiKey: string; token: string; boardUrls: string }
+    ) => rpc.trello.saveCredentials(organizationId, credentials),
+    disconnectMutationFn: (organizationId: string) => rpc.trello.clearCredentials(organizationId),
     fallbackError: DEFAULT_CONNECT_ERROR,
     validateInput: validateTrelloCredentials,
   },
@@ -183,16 +199,21 @@ function isConnected(
   return !!statusData[provider]?.connected;
 }
 
-export function IntegrationsProvider({ children }: { children: React.ReactNode }) {
+export const IntegrationsProvider = observer(function IntegrationsProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const queryClient = useQueryClient();
+  const organizationId = getActiveOrganizationId();
 
   const {
     data: statusData,
     isFetching: isCheckingConnections,
     isLoading: isInitialConnectionCheck,
   } = useQuery({
-    queryKey: ISSUE_CONNECTION_STATUS_QUERY_KEY,
-    queryFn: () => rpc.issues.checkAllConnections(),
+    queryKey: [...ISSUE_CONNECTION_STATUS_QUERY_KEY, organizationId],
+    queryFn: () => rpc.issues.checkAllConnections(organizationId),
     staleTime: 30_000,
     refetchOnWindowFocus: true,
   });
@@ -203,38 +224,47 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
 
   const linearConnection = useProviderConnection({
     ...PROVIDER_CONNECTION_CONFIG.linear,
+    organizationId,
     invalidate: invalidateStatuses,
   });
   const jiraConnection = useProviderConnection({
     ...PROVIDER_CONNECTION_CONFIG.jira,
+    organizationId,
     invalidate: invalidateStatuses,
   });
   const gitlabConnection = useProviderConnection({
     ...PROVIDER_CONNECTION_CONFIG.gitlab,
+    organizationId,
     invalidate: invalidateStatuses,
   });
   const plainConnection = useProviderConnection({
     ...PROVIDER_CONNECTION_CONFIG.plain,
+    organizationId,
     invalidate: invalidateStatuses,
   });
   const forgejoConnection = useProviderConnection({
     ...PROVIDER_CONNECTION_CONFIG.forgejo,
+    organizationId,
     invalidate: invalidateStatuses,
   });
   const featurebaseConnection = useProviderConnection({
     ...PROVIDER_CONNECTION_CONFIG.featurebase,
+    organizationId,
     invalidate: invalidateStatuses,
   });
   const asanaConnection = useProviderConnection({
     ...PROVIDER_CONNECTION_CONFIG.asana,
+    organizationId,
     invalidate: invalidateStatuses,
   });
   const mondayConnection = useProviderConnection({
     ...PROVIDER_CONNECTION_CONFIG.monday,
+    organizationId,
     invalidate: invalidateStatuses,
   });
   const trelloConnection = useProviderConnection({
     ...PROVIDER_CONNECTION_CONFIG.trello,
+    organizationId,
     invalidate: invalidateStatuses,
   });
 
@@ -286,7 +316,7 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
       {children}
     </IntegrationsContext.Provider>
   );
-}
+});
 
 export function useIntegrationsContext() {
   const ctx = useContext(IntegrationsContext);

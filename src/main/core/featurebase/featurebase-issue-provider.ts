@@ -3,6 +3,7 @@ import type { IssueProvider } from '@main/core/issues/issue-provider';
 import { log } from '@main/lib/logger';
 import type { LinkedIssue } from '@shared/core/linked-issue';
 import { ISSUE_PROVIDER_CAPABILITIES, type IssueListResult } from '@shared/issue-providers';
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import {
   featurebaseConnectionService,
   NOT_CONFIGURED_ERROR,
@@ -60,8 +61,11 @@ function toIssue(post: FeaturebasePost): LinkedIssue {
   };
 }
 
-async function fetchPosts(opts: { limit: number; searchTerm?: string }): Promise<IssueListResult> {
-  const client = await featurebaseConnectionService.getClient();
+async function fetchPosts(
+  organizationId: string,
+  opts: { limit: number; searchTerm?: string }
+): Promise<IssueListResult> {
+  const client = await featurebaseConnectionService.getClient(organizationId);
   if (!client) {
     return {
       success: false,
@@ -92,13 +96,17 @@ async function fetchPosts(opts: { limit: number; searchTerm?: string }): Promise
   }
 }
 
-async function searchIssues(searchTerm: string, limit: number): Promise<IssueListResult> {
+async function searchIssues(
+  organizationId: string,
+  searchTerm: string,
+  limit: number
+): Promise<IssueListResult> {
   const term = normalizeSearchTerm(searchTerm);
   if (!term) {
     return { success: true, issues: [] };
   }
 
-  const result = await fetchPosts({ limit, searchTerm: term });
+  const result = await fetchPosts(organizationId, { limit, searchTerm: term });
   if (!result.success) {
     log.error('[Featurebase] searchIssues error:', result.error);
     return result;
@@ -110,9 +118,15 @@ export const featurebaseIssueProvider: IssueProvider = {
   type: 'featurebase',
   capabilities: ISSUE_PROVIDER_CAPABILITIES.featurebase,
 
-  checkConnection: () => featurebaseConnectionService.checkConnection(),
+  checkConnection: (organizationId) => featurebaseConnectionService.checkConnection(organizationId),
 
-  listIssues: async (opts) => fetchPosts({ limit: opts.limit ?? 50 }),
+  listIssues: async (opts) =>
+    fetchPosts(opts.organizationId ?? PERSONAL_ORGANIZATION_ID, { limit: opts.limit ?? 50 }),
 
-  searchIssues: async (opts) => searchIssues(opts.searchTerm, opts.limit ?? 20),
+  searchIssues: async (opts) =>
+    searchIssues(
+      opts.organizationId ?? PERSONAL_ORGANIZATION_ID,
+      opts.searchTerm,
+      opts.limit ?? 20
+    ),
 };

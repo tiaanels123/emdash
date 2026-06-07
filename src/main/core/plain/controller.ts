@@ -2,14 +2,15 @@ import { createRPCController } from '@shared/lib/ipc/rpc';
 import { plainConnectionService } from './plain-connection-service';
 
 export const plainController = createRPCController({
-  saveToken: async (token: string) => {
+  saveToken: async (organizationId: string, token: string) => {
     if (!token || typeof token !== 'string') {
       return { success: false, error: 'A Plain API key is required.' };
     }
-    return plainConnectionService.saveToken(token);
+    return plainConnectionService.saveToken(organizationId, token);
   },
 
-  checkConnection: async () => plainConnectionService.checkConnection(),
+  checkConnection: async (organizationId: string) =>
+    plainConnectionService.checkConnection(organizationId),
 
-  clearToken: async () => plainConnectionService.clearToken(),
+  clearToken: async (organizationId: string) => plainConnectionService.clearToken(organizationId),
 });

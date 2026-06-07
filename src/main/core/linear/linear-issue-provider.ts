@@ -7,6 +7,7 @@ import {
   type IssueContextResult,
   type IssueListResult,
 } from '@shared/issue-providers';
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import { linearConnectionService } from './linear-connection-service';
 import {
   formatLinearContext,
@@ -123,8 +124,8 @@ function toIssue(raw: LinearIssueSummaryNode, context?: string): LinkedIssue {
   };
 }
 
-async function listIssues(limit = 50): Promise<IssueListResult> {
-  const client = await linearConnectionService.getClient();
+async function listIssues(organizationId: string, limit = 50): Promise<IssueListResult> {
+  const client = await linearConnectionService.getClient(organizationId);
   if (!client) {
     return { success: false, error: 'Linear token not set. Connect Linear in settings first.' };
   }
@@ -147,13 +148,17 @@ async function listIssues(limit = 50): Promise<IssueListResult> {
   }
 }
 
-async function searchIssues(searchTerm: string, limit = 20): Promise<IssueListResult> {
+async function searchIssues(
+  organizationId: string,
+  searchTerm: string,
+  limit = 20
+): Promise<IssueListResult> {
   const term = normalizeSearchTerm(searchTerm);
   if (!term) {
     return { success: true, issues: [] };
   }
 
-  const client = await linearConnectionService.getClient();
+  const client = await linearConnectionService.getClient(organizationId);
   if (!client) {
     return { success: false, error: 'Linear token not set. Connect Linear in settings first.' };
   }
@@ -180,13 +185,16 @@ async function searchIssues(searchTerm: string, limit = 20): Promise<IssueListRe
   }
 }
 
-async function getIssueContext(identifier: string): Promise<IssueContextResult> {
+async function getIssueContext(
+  organizationId: string,
+  identifier: string
+): Promise<IssueContextResult> {
   const term = normalizeSearchTerm(identifier);
   if (!term) {
     return { success: false, error: 'Linear issue identifier is required.' };
   }
 
-  const client = await linearConnectionService.getClient();
+  const client = await linearConnectionService.getClient(organizationId);
   if (!client) {
     return { success: false, error: 'Linear token not set. Connect Linear in settings first.' };
   }
@@ -232,11 +240,18 @@ export const linearIssueProvider: IssueProvider = {
   type: 'linear',
   capabilities: ISSUE_PROVIDER_CAPABILITIES.linear,
 
-  checkConnection: () => linearConnectionService.checkConnection(),
+  checkConnection: (organizationId) => linearConnectionService.checkConnection(organizationId),
 
-  listIssues: async (opts) => listIssues(opts.limit ?? 50),
+  listIssues: async (opts) =>
+    listIssues(opts.organizationId ?? PERSONAL_ORGANIZATION_ID, opts.limit ?? 50),
 
-  searchIssues: async (opts) => searchIssues(opts.searchTerm, opts.limit ?? 20),
+  searchIssues: async (opts) =>
+    searchIssues(
+      opts.organizationId ?? PERSONAL_ORGANIZATION_ID,
+      opts.searchTerm,
+      opts.limit ?? 20
+    ),
 
-  getIssueContext: async (opts) => getIssueContext(opts.identifier),
+  getIssueContext: async (opts) =>
+    getIssueContext(opts.organizationId ?? PERSONAL_ORGANIZATION_ID, opts.identifier),
 };

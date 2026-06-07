@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { err, ok } from '@shared/lib/result';
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import { githubAccountRegistry } from './accounts/github-account-registry-instance';
 import { githubIssueProvider } from './github-issue-provider';
 import { githubRepositoryResolver } from './services/github-repository-resolver';
@@ -78,7 +79,7 @@ describe('githubIssueProvider', () => {
     ]);
     mockGithubAccountRegistry.resolveToken.mockResolvedValue('gho_monalisa');
 
-    await expect(githubIssueProvider.checkConnection()).resolves.toEqual({
+    await expect(githubIssueProvider.checkConnection(PERSONAL_ORGANIZATION_ID)).resolves.toEqual({
       connected: true,
       displayName: 'monalisa',
       capabilities: githubIssueProvider.capabilities,
@@ -101,7 +102,7 @@ describe('githubIssueProvider', () => {
     ]);
     mockGithubAccountRegistry.resolveToken.mockResolvedValue(null);
 
-    await expect(githubIssueProvider.checkConnection()).resolves.toEqual({
+    await expect(githubIssueProvider.checkConnection(PERSONAL_ORGANIZATION_ID)).resolves.toEqual({
       connected: false,
       displayName: undefined,
       capabilities: githubIssueProvider.capabilities,

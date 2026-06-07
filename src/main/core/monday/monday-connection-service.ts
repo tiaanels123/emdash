@@ -1,4 +1,5 @@
 import { encryptedAppSecretsStore } from '@main/core/secrets/encrypted-app-secrets-store';
+import { orgScopedSecretKey } from '@main/core/secrets/org-scoped-secret-key';
 import { log } from '@main/lib/logger';
 import { telemetryService } from '@main/lib/telemetry';
 import { ISSUE_PROVIDER_CAPABILITIES, type ConnectionStatus } from '@shared/issue-providers';
@@ -62,9 +63,17 @@ function toMondayApiErrorMessage(status: number, apiMessage?: string): string {
 }
 
 export class MondayConnectionService {
-  private cachedCredentials: MondayCredentials | null | undefined = undefined;
+  // Cache is keyed by organization id so each organization keeps its own
+  // credential blob. Tri-state semantics: absent = unloaded, null =
+  // loaded-but-absent, value = loaded credentials.
+  private readonly cachedCredentials = new Map<string, MondayCredentials | null>();
+
+  private secretKey(organizationId: string): string {
+    return orgScopedSecretKey(organizationId, CREDENTIALS_KEY);
+  }
 
   async saveCredentials(
+    organizationId: string,
     input: SaveCredentialsInput
   ): Promise<{ success: boolean; workspaceName?: string; error?: string }> {
     const token = input.token.trim();
@@ -83,7 +92,7 @@ export class MondayConnectionService {
     try {
       const me = await this.fetchMe(token);
       const credentials: MondayCredentials = { token, ...boardScope };
-      await this.storeCredentials(credentials);
+      await this.storeCredentials(organizationId, credentials);
       telemetryService.capture('integration_connected', { provider: 'monday' });
       return { success: true, workspaceName: me.accountName ?? me.name };
     } catch (error) {
@@ -95,10 +104,10 @@ export class MondayConnectionService {
     }
   }
 
-  async clearCredentials(): Promise<{ success: boolean; error?: string }> {
+  async clearCredentials(organizationId: string): Promise<{ success: boolean; error?: string }> {
     try {
-      await encryptedAppSecretsStore.deleteSecret(CREDENTIALS_KEY);
-      this.cachedCredentials = null;
+      await encryptedAppSecretsStore.deleteSecret(this.secretKey(organizationId));
+      this.cachedCredentials.set(organizationId, null);
       telemetryService.capture('integration_disconnected', { provider: 'monday' });
       return { success: true };
     } catch (error) {
@@ -110,9 +119,9 @@ export class MondayConnectionService {
     }
   }
 
-  async checkConnection(): Promise<ConnectionStatus> {
+  async checkConnection(organizationId: string): Promise<ConnectionStatus> {
     try {
-      const credentials = await this.getStoredCredentials();
+      const credentials = await this.getStoredCredentials(organizationId);
       if (!credentials) {
         return { connected: false, capabilities: ISSUE_PROVIDER_CAPABILITIES.monday };
       }
@@ -130,19 +139,20 @@ export class MondayConnectionService {
     }
   }
 
-  async getStoredCredentials(): Promise<MondayCredentials | null> {
-    if (this.cachedCredentials !== undefined) {
-      return this.cachedCredentials;
+  async getStoredCredentials(organizationId: string): Promise<MondayCredentials | null> {
+    if (this.cachedCredentials.has(organizationId)) {
+      return this.cachedCredentials.get(organizationId) ?? null;
     }
 
     try {
-      const raw = await encryptedAppSecretsStore.getSecret(CREDENTIALS_KEY);
+      const raw = await encryptedAppSecretsStore.getSecret(this.secretKey(organizationId));
       if (!raw) {
-        this.cachedCredentials = null;
+        this.cachedCredentials.set(organizationId, null);
         return null;
       }
-      this.cachedCredentials = normalizeStoredCredentials(JSON.parse(raw));
-      return this.cachedCredentials;
+      const credentials = normalizeStoredCredentials(JSON.parse(raw));
+      this.cachedCredentials.set(organizationId, credentials);
+      return credentials;
     } catch (error) {
       log.error('Failed to read Monday.com credentials from secure storage:', error);
       return null;
@@ -205,10 +215,16 @@ export class MondayConnectionService {
     return { id: data.me.id, name: data.me.name, accountName: data.me.account?.name };
   }
 
-  private async storeCredentials(credentials: MondayCredentials): Promise<void> {
+  private async storeCredentials(
+    organizationId: string,
+    credentials: MondayCredentials
+  ): Promise<void> {
     try {
-      await encryptedAppSecretsStore.setSecret(CREDENTIALS_KEY, JSON.stringify(credentials));
-      this.cachedCredentials = credentials;
+      await encryptedAppSecretsStore.setSecret(
+        this.secretKey(organizationId),
+        JSON.stringify(credentials)
+      );
+      this.cachedCredentials.set(organizationId, credentials);
     } catch (error) {
       log.error('Failed to store Monday.com credentials:', error);
       throw new Error('Unable to store Monday.com credentials securely.');

@@ -1,6 +1,7 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { db } from '@main/db/client';
 import { projects, type ProjectRow } from '@main/db/schema';
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import type { LocalProject, SshProject } from '@shared/projects';
 
 /** Maps a project row to its shared DTO, discriminating on the workspace provider. */
@@ -42,6 +43,23 @@ export async function getProjectById(
 ): Promise<LocalProject | SshProject | undefined> {
   const [row] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
   return row ? toProject(row) : undefined;
+}
+
+/**
+ * Resolves the organization that owns a project. Used by operation-resolution
+ * paths (issue listing, PR creation, provider config) that must read the
+ * credentials of the *project's* organization rather than the active one.
+ * Falls back to the Personal organization when the project id is absent or
+ * unknown (matches the `projects.organizationId` column default).
+ */
+export async function getProjectOrganizationId(projectId: string | undefined): Promise<string> {
+  if (!projectId) return PERSONAL_ORGANIZATION_ID;
+  const [row] = await db
+    .select({ organizationId: projects.organizationId })
+    .from(projects)
+    .where(eq(projects.id, projectId))
+    .limit(1);
+  return row?.organizationId ?? PERSONAL_ORGANIZATION_ID;
 }
 
 export async function getLocalProjectByPath(path: string): Promise<LocalProject | undefined> {
