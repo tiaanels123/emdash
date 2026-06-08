@@ -1,6 +1,7 @@
 import { Clock, FolderInput, Library, MessageSquareShare, Settings } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import React from 'react';
+import { OrganizationSwitcher } from '@renderer/features/organizations/components/OrganizationSwitcher';
 import {
   isCurrentView,
   useNavigate,
@@ -10,7 +11,6 @@ import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { Badge } from '@renderer/lib/ui/badge';
 import { BoundShortcut } from '@renderer/lib/ui/shortcut';
 import { cn } from '@renderer/utils/utils';
-import { OrganizationSwitcher } from '@renderer/features/organizations/components/OrganizationSwitcher';
 import { SidebarPinnedTaskList } from './pinned-task-list';
 import { ProjectsGroupLabel } from './projects-group-label';
 import {

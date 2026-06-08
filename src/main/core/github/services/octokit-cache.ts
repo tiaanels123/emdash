@@ -26,11 +26,7 @@ export function setCachedOctokit(
  * are provided the deletion is narrowed to that org's matching entries;
  * otherwise every cached client for the organization is removed.
  */
-export function clearOctokitCache(
-  organizationId: string,
-  host?: string,
-  accountId?: string
-): void {
+export function clearOctokitCache(organizationId: string, host?: string, accountId?: string): void {
   if (host) {
     const normalizedHost = normalizeRepositoryHost(host);
     if (accountId) {

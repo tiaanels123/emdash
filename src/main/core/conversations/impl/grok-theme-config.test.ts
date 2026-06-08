@@ -58,8 +58,9 @@ describe('grok theme config', () => {
   });
 
   it('uses GROK_HOME when resolving the config path', () => {
+    // path.join in production yields platform-native separators.
     expect(getGrokConfigPath({ GROK_HOME: '/tmp/custom-grok-home' })).toBe(
-      '/tmp/custom-grok-home/config.toml'
+      path.join('/tmp/custom-grok-home', 'config.toml')
     );
   });
 

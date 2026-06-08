@@ -40,10 +40,7 @@ export type GitHubAccountMetadataStore = {
   getDefaultAccountId(organizationId: string): Promise<string | null>;
   setDefaultAccountId(organizationId: string, accountId: string | null): Promise<void>;
   getRemovedCliAccounts(organizationId: string): Promise<GitHubRemovedCliAccount[] | null>;
-  setRemovedCliAccounts(
-    organizationId: string,
-    accounts: GitHubRemovedCliAccount[]
-  ): Promise<void>;
+  setRemovedCliAccounts(organizationId: string, accounts: GitHubRemovedCliAccount[]): Promise<void>;
 };
 
 export type GitHubAccountSecretStore = {
@@ -58,10 +55,7 @@ export class GitHubAccountRegistry {
     private readonly secretStore: GitHubAccountSecretStore
   ) {}
 
-  async upsertAccount(
-    organizationId: string,
-    input: GitHubAccountUpsert
-  ): Promise<GitHubAccount> {
+  async upsertAccount(organizationId: string, input: GitHubAccountUpsert): Promise<GitHubAccount> {
     const now = Date.now();
     const id = this.accountId(input.providerAccount);
     const accounts = await this.listAccounts(organizationId);
@@ -188,10 +182,7 @@ export class GitHubAccountRegistry {
     ]);
   }
 
-  private async clearRemovedCliAccount(
-    organizationId: string,
-    accountId: string
-  ): Promise<void> {
+  private async clearRemovedCliAccount(organizationId: string, accountId: string): Promise<void> {
     const tombstones = await this.listRemovedCliAccounts(organizationId);
     if (!tombstones.some((candidate) => candidate.accountId === accountId)) return;
     await this.metadataStore.setRemovedCliAccounts(

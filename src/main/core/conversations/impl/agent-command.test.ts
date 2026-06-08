@@ -9,6 +9,10 @@ import {
   wrapAgentCommandWithStdinPipe,
 } from './agent-command';
 
+// Tests that assert POSIX shell-command output; the Windows path emits a
+// base64-encoded PowerShell payload instead, so they are skipped there.
+const itPosix = process.platform === 'win32' ? it.skip : it;
+
 function makeConfig(overrides: Partial<ProviderCustomConfig> = {}): ProviderCustomConfig {
   return {
     cli: 'claude',
@@ -212,7 +216,9 @@ describe('buildAgentCommand', () => {
     expect(command.args).toEqual(['-S', 'ses_kimi_1']);
   });
 
-  it('injects Kimi hooks into inline TOML --config args', () => {
+  // Hook injection emits a platform-native shell command; on Windows it is a
+  // base64-encoded PowerShell payload, so these assert the POSIX form only.
+  itPosix('injects Kimi hooks into inline TOML --config args', () => {
     const command = buildAgentCommand({
       providerId: 'kimi',
       providerConfig: {
@@ -244,7 +250,7 @@ describe('buildAgentCommand', () => {
     );
   });
 
-  it('injects Kimi hooks into inline JSON --config args', () => {
+  itPosix('injects Kimi hooks into inline JSON --config args', () => {
     const command = buildAgentCommand({
       providerId: 'kimi',
       providerConfig: {

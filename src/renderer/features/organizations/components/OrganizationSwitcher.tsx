@@ -89,7 +89,11 @@ export const OrganizationSwitcher = observer(function OrganizationSwitcher() {
             <>
               <DropdownMenuItem
                 onClick={() =>
-                  showOrgModal({ mode: 'rename', organizationId: active.id, currentName: active.name })
+                  showOrgModal({
+                    mode: 'rename',
+                    organizationId: active.id,
+                    currentName: active.name,
+                  })
                 }
               >
                 <Pencil className="size-4" />
