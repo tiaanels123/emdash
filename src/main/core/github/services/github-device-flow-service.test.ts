@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GitHubUser } from '@shared/github';
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import {
   GitHubAccountRegistry,
   type GitHubAccountMetadataStore,
   type GitHubAccountSecretStore,
 } from '../accounts/github-account-registry';
 import { GitHubDeviceFlowService } from './github-device-flow-service';
+
+const ORG_ID = PERSONAL_ORGANIZATION_ID;
 
 class InMemoryMetadataStore implements GitHubAccountMetadataStore {
   accounts = null as Awaited<ReturnType<GitHubAccountMetadataStore['getAccounts']>>;
@@ -14,27 +17,30 @@ class InMemoryMetadataStore implements GitHubAccountMetadataStore {
     ReturnType<GitHubAccountMetadataStore['getRemovedCliAccounts']>
   >;
 
-  async getAccounts() {
+  async getAccounts(_organizationId: string) {
     return this.accounts;
   }
 
-  async setAccounts(accounts: NonNullable<typeof this.accounts>) {
+  async setAccounts(_organizationId: string, accounts: NonNullable<typeof this.accounts>) {
     this.accounts = accounts;
   }
 
-  async getDefaultAccountId() {
+  async getDefaultAccountId(_organizationId: string) {
     return this.defaultAccountId;
   }
 
-  async setDefaultAccountId(accountId: string | null) {
+  async setDefaultAccountId(_organizationId: string, accountId: string | null) {
     this.defaultAccountId = accountId;
   }
 
-  async getRemovedCliAccounts() {
+  async getRemovedCliAccounts(_organizationId: string) {
     return this.removedCliAccounts;
   }
 
-  async setRemovedCliAccounts(accounts: NonNullable<typeof this.removedCliAccounts>) {
+  async setRemovedCliAccounts(
+    _organizationId: string,
+    accounts: NonNullable<typeof this.removedCliAccounts>
+  ) {
     this.removedCliAccounts = accounts;
   }
 }
@@ -82,7 +88,7 @@ describe('GitHubDeviceFlowService', () => {
       createDeviceAuth: () => async () => ({ token: 'gho_device' }),
     });
 
-    await expect(service.start()).resolves.toMatchObject({
+    await expect(service.start(ORG_ID)).resolves.toMatchObject({
       success: true,
       user,
       account: {
@@ -90,7 +96,7 @@ describe('GitHubDeviceFlowService', () => {
         credentialSource: 'device_flow',
       },
     });
-    await expect(registry.resolveToken('github.com:42')).resolves.toBe('gho_device');
+    await expect(registry.resolveToken(ORG_ID, 'github.com:42')).resolves.toBe('gho_device');
   });
 
   it('returns an error when the device-flow token cannot identify a user', async () => {
@@ -102,10 +108,10 @@ describe('GitHubDeviceFlowService', () => {
       createDeviceAuth: () => async () => ({ token: 'gho_device' }),
     });
 
-    await expect(service.start()).resolves.toEqual({
+    await expect(service.start(ORG_ID)).resolves.toEqual({
       success: false,
       error: 'Failed to read authenticated GitHub user',
     });
-    await expect(registry.listAccounts()).resolves.toEqual([]);
+    await expect(registry.listAccounts(ORG_ID)).resolves.toEqual([]);
   });
 });

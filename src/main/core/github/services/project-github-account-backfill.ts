@@ -1,4 +1,3 @@
-import { getProjectOrganizationId } from '@main/core/projects/operations/getProjects';
 import type { ProjectSettings } from '@shared/core/project-settings/project-settings';
 import type { Result } from '@shared/lib/result';
 import { normalizeRepositoryHost, parseRepositoryRef } from '@shared/repository-ref';
@@ -25,7 +24,10 @@ export type ProjectGitHubAccountBackfillResult =
   | { status: 'skipped' };
 
 export class ProjectGitHubAccountBackfillService {
-  constructor(private readonly accountLookup: AccountLookup) {}
+  constructor(
+    private readonly accountLookup: AccountLookup,
+    private readonly getOrganizationId: (projectId: string) => Promise<string>
+  ) {}
 
   async backfillProject(
     project: ProjectForGitHubAccountBackfill
@@ -39,7 +41,7 @@ export class ProjectGitHubAccountBackfillService {
     const repository = parseRepositoryRef(remoteState.selectedRemoteUrl);
     if (!repository) return { status: 'skipped' };
 
-    const organizationId = await getProjectOrganizationId(project.projectId);
+    const organizationId = await this.getOrganizationId(project.projectId);
     const accountId = await this.selectAccountIdForHost(organizationId, repository.host);
     if (!accountId) return { status: 'skipped' };
 

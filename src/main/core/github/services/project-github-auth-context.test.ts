@@ -1,10 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ProjectSettings } from '@shared/core/project-settings/project-settings';
 import { err, ok } from '@shared/lib/result';
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import {
   ProjectGitHubAuthContextResolver,
   type ProjectGitHubAuthContextError,
 } from './project-github-auth-context-resolver';
+
+const ORG_ID = PERSONAL_ORGANIZATION_ID;
 
 type FakeProject = {
   settings: { get(): Promise<ProjectSettings> };
@@ -43,6 +46,7 @@ describe('ProjectGitHubAuthContextResolver', () => {
     resolver = new ProjectGitHubAuthContextResolver({
       projects,
       logger,
+      getOrganizationId: async () => ORG_ID,
     });
   });
 
@@ -51,7 +55,7 @@ describe('ProjectGitHubAuthContextResolver', () => {
     projects.setProject('project-1', project);
 
     await expect(resolver.resolve('project-1')).resolves.toEqual(
-      ok({ accountId: 'github.com:42' })
+      ok({ organizationId: ORG_ID, accountId: 'github.com:42' })
     );
     expect(project.settings.get).toHaveBeenCalled();
   });

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ProjectSettings } from '@shared/core/project-settings/project-settings';
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import type { GitHubAccount } from '../accounts/github-account-registry';
 import { ProjectGitHubAccountBackfillService } from './project-github-account-backfill';
 
@@ -66,7 +67,10 @@ describe('ProjectGitHubAccountBackfillService', () => {
 
   beforeEach(() => {
     accountLookup = new AccountLookup();
-    service = new ProjectGitHubAccountBackfillService(accountLookup);
+    service = new ProjectGitHubAccountBackfillService(
+      accountLookup,
+      async () => PERSONAL_ORGANIZATION_ID
+    );
   });
 
   it('backfills GitHub.com projects without a selected account to the default account', async () => {

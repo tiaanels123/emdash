@@ -1,6 +1,7 @@
 import type { Octokit } from '@octokit/rest';
 import { describe, expect, it, vi } from 'vitest';
 import { ok } from '@shared/lib/result';
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import { getOctokit } from './octokit-provider';
 import { repoService } from './repo-service';
 
@@ -9,6 +10,9 @@ vi.mock('./octokit-provider', () => ({
 }));
 
 const mockGetOctokit = vi.mocked(getOctokit);
+
+const ORG_ID = PERSONAL_ORGANIZATION_ID;
+const authContext = { organizationId: ORG_ID };
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -92,7 +96,7 @@ describe('GitHubRepositoryServiceImpl', () => {
       });
       mockGetOctokit.mockResolvedValue(ok(octokit));
 
-      const result = await repoService.listRepositories();
+      const result = await repoService.listRepositories(authContext);
 
       expect(result).toEqual([expectedRepo]);
     });
@@ -105,7 +109,7 @@ describe('GitHubRepositoryServiceImpl', () => {
       });
       mockGetOctokit.mockResolvedValue(ok(octokit));
 
-      const owners = await repoService.getOwners();
+      const owners = await repoService.getOwners(authContext);
 
       expect(owners).toEqual([
         { login: 'testuser', type: 'User' },
@@ -119,7 +123,7 @@ describe('GitHubRepositoryServiceImpl', () => {
       });
       mockGetOctokit.mockResolvedValue(ok(octokit));
 
-      const owners = await repoService.getOwners();
+      const owners = await repoService.getOwners(authContext);
 
       expect(owners).toEqual([{ login: 'testuser', type: 'User' }]);
     });
@@ -128,18 +132,22 @@ describe('GitHubRepositoryServiceImpl', () => {
       const octokit = makeOctokit();
       mockGetOctokit.mockResolvedValue(ok(octokit));
 
-      await repoService.getOwners({ accountId: 'github.com:42' });
+      await repoService.getOwners({ organizationId: ORG_ID, accountId: 'github.com:42' });
 
-      expect(mockGetOctokit).toHaveBeenCalledWith('github.com', { accountId: 'github.com:42' });
+      expect(mockGetOctokit).toHaveBeenCalledWith('github.com', {
+        organizationId: ORG_ID,
+        accountId: 'github.com:42',
+      });
     });
 
     it('uses the selected GitHub Enterprise account host for owner lookup', async () => {
       const octokit = makeOctokit();
       mockGetOctokit.mockResolvedValue(ok(octokit));
 
-      await repoService.getOwners({ accountId: 'ghe.example.com:168' });
+      await repoService.getOwners({ organizationId: ORG_ID, accountId: 'ghe.example.com:168' });
 
       expect(mockGetOctokit).toHaveBeenCalledWith('ghe.example.com', {
+        organizationId: ORG_ID,
         accountId: 'ghe.example.com:168',
       });
     });
@@ -163,6 +171,7 @@ describe('GitHubRepositoryServiceImpl', () => {
         name: 'new',
         owner: 'testuser',
         isPrivate: false,
+        authContext,
       });
 
       expect(octokit.rest.repos.createForAuthenticatedUser).toHaveBeenCalled();
@@ -187,7 +196,12 @@ describe('GitHubRepositoryServiceImpl', () => {
       });
       mockGetOctokit.mockResolvedValue(ok(octokit));
 
-      await repoService.createRepository({ name: 'new', owner: 'acme', isPrivate: true });
+      await repoService.createRepository({
+        name: 'new',
+        owner: 'acme',
+        isPrivate: true,
+        authContext,
+      });
 
       expect(octokit.rest.repos.createInOrg).toHaveBeenCalledWith(
         expect.objectContaining({ org: 'acme', name: 'new', private: true })
@@ -211,10 +225,13 @@ describe('GitHubRepositoryServiceImpl', () => {
         name: 'new',
         owner: 'testuser',
         isPrivate: false,
-        authContext: { accountId: 'github.com:42' },
+        authContext: { organizationId: ORG_ID, accountId: 'github.com:42' },
       });
 
-      expect(mockGetOctokit).toHaveBeenCalledWith('github.com', { accountId: 'github.com:42' });
+      expect(mockGetOctokit).toHaveBeenCalledWith('github.com', {
+        organizationId: ORG_ID,
+        accountId: 'github.com:42',
+      });
     });
 
     it('uses the selected GitHub Enterprise account host for repository creation', async () => {
@@ -234,10 +251,11 @@ describe('GitHubRepositoryServiceImpl', () => {
         name: 'new',
         owner: 'testuser',
         isPrivate: false,
-        authContext: { accountId: 'ghe.example.com:168' },
+        authContext: { organizationId: ORG_ID, accountId: 'ghe.example.com:168' },
       });
 
       expect(mockGetOctokit).toHaveBeenCalledWith('ghe.example.com', {
+        organizationId: ORG_ID,
         accountId: 'ghe.example.com:168',
       });
       expect(result.cloneUrl).toBe('https://ghe.example.com/testuser/new.git');
@@ -249,7 +267,7 @@ describe('GitHubRepositoryServiceImpl', () => {
       const octokit = makeOctokit();
       mockGetOctokit.mockResolvedValue(ok(octokit));
 
-      await repoService.deleteRepository('testuser', 'old-repo');
+      await repoService.deleteRepository('testuser', 'old-repo', authContext);
 
       expect(octokit.rest.repos.delete).toHaveBeenCalledWith({
         owner: 'testuser',
@@ -261,9 +279,15 @@ describe('GitHubRepositoryServiceImpl', () => {
       const octokit = makeOctokit();
       mockGetOctokit.mockResolvedValue(ok(octokit));
 
-      await repoService.deleteRepository('testuser', 'old-repo', { accountId: 'github.com:42' });
+      await repoService.deleteRepository('testuser', 'old-repo', {
+        organizationId: ORG_ID,
+        accountId: 'github.com:42',
+      });
 
-      expect(mockGetOctokit).toHaveBeenCalledWith('github.com', { accountId: 'github.com:42' });
+      expect(mockGetOctokit).toHaveBeenCalledWith('github.com', {
+        organizationId: ORG_ID,
+        accountId: 'github.com:42',
+      });
       expect(octokit.rest.repos.delete).toHaveBeenCalledWith({
         owner: 'testuser',
         repo: 'old-repo',
@@ -275,10 +299,12 @@ describe('GitHubRepositoryServiceImpl', () => {
       mockGetOctokit.mockResolvedValue(ok(octokit));
 
       await repoService.deleteRepository('testuser', 'old-repo', {
+        organizationId: ORG_ID,
         accountId: 'ghe.example.com:168',
       });
 
       expect(mockGetOctokit).toHaveBeenCalledWith('ghe.example.com', {
+        organizationId: ORG_ID,
         accountId: 'ghe.example.com:168',
       });
     });

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import {
   GitHubAccountRegistry,
   type GitHubAccount,
@@ -7,6 +8,8 @@ import {
 } from './github-account-registry';
 import { GitHubAccountService } from './github-account-service';
 
+const ORG_ID = PERSONAL_ORGANIZATION_ID;
+
 class InMemoryMetadataStore implements GitHubAccountMetadataStore {
   accounts = null as Awaited<ReturnType<GitHubAccountMetadataStore['getAccounts']>>;
   defaultAccountId: string | null = null;
@@ -14,27 +17,30 @@ class InMemoryMetadataStore implements GitHubAccountMetadataStore {
     ReturnType<GitHubAccountMetadataStore['getRemovedCliAccounts']>
   >;
 
-  async getAccounts() {
+  async getAccounts(_organizationId: string) {
     return this.accounts;
   }
 
-  async setAccounts(accounts: NonNullable<typeof this.accounts>) {
+  async setAccounts(_organizationId: string, accounts: NonNullable<typeof this.accounts>) {
     this.accounts = accounts;
   }
 
-  async getDefaultAccountId() {
+  async getDefaultAccountId(_organizationId: string) {
     return this.defaultAccountId;
   }
 
-  async setDefaultAccountId(accountId: string | null) {
+  async setDefaultAccountId(_organizationId: string, accountId: string | null) {
     this.defaultAccountId = accountId;
   }
 
-  async getRemovedCliAccounts() {
+  async getRemovedCliAccounts(_organizationId: string) {
     return this.removedCliAccounts;
   }
 
-  async setRemovedCliAccounts(accounts: NonNullable<typeof this.removedCliAccounts>) {
+  async setRemovedCliAccounts(
+    _organizationId: string,
+    accounts: NonNullable<typeof this.removedCliAccounts>
+  ) {
     this.removedCliAccounts = accounts;
   }
 }
@@ -59,7 +65,7 @@ describe('GitHubAccountService', () => {
   let registry: GitHubAccountRegistry;
   let service: GitHubAccountService;
   let importCliAccounts: () => Promise<GitHubAccount[]>;
-  let clearOctokitCache: (host?: string, accountId?: string) => void;
+  let clearOctokitCache: (organizationId: string, host?: string, accountId?: string) => void;
 
   beforeEach(() => {
     registry = new GitHubAccountRegistry(new InMemoryMetadataStore(), new InMemorySecretStore());
@@ -75,7 +81,7 @@ describe('GitHubAccountService', () => {
   });
 
   async function upsertAccount(login: string, providerAccountId: string, host = 'github.com') {
-    return registry.upsertAccount({
+    return registry.upsertAccount(ORG_ID, {
       accessToken: `token-${host}-${providerAccountId}`,
       credentialSource: host === 'github.com' ? 'emdash_oauth' : 'cli',
       providerAccount: {
@@ -91,9 +97,9 @@ describe('GitHubAccountService', () => {
   it('lists linked accounts with exactly one default account marker', async () => {
     const first = await upsertAccount('monalisa', '42');
     const second = await upsertAccount('enterprise-monalisa', '42', 'ghe.example.com');
-    await registry.setDefaultAccountId(second.id);
+    await registry.setDefaultAccountId(ORG_ID, second.id);
 
-    await expect(service.listAccounts()).resolves.toEqual([
+    await expect(service.listAccounts(ORG_ID)).resolves.toEqual([
       {
         accountId: first.id,
         host: 'github.com',
@@ -116,14 +122,14 @@ describe('GitHubAccountService', () => {
   it('returns null instead of changing the default for an unknown account id', async () => {
     const account = await upsertAccount('monalisa', '42');
 
-    await expect(service.setDefaultAccount('github.com:missing')).resolves.toBeNull();
-    await expect(registry.getDefaultAccountId()).resolves.toBe(account.id);
+    await expect(service.setDefaultAccount(ORG_ID, 'github.com:missing')).resolves.toBeNull();
+    await expect(registry.getDefaultAccountId(ORG_ID)).resolves.toBe(account.id);
   });
 
   it('imports CLI accounts and returns the refreshed account list', async () => {
     const existing = await upsertAccount('monalisa', '42');
     importCliAccounts = async () => [
-      await registry.upsertAccount({
+      await registry.upsertAccount(ORG_ID, {
         accessToken: 'token-ghe',
         credentialSource: 'cli',
         providerAccount: {
@@ -136,14 +142,14 @@ describe('GitHubAccountService', () => {
       }),
     ];
 
-    const result = await service.importCliAccounts();
+    const result = await service.importCliAccounts(ORG_ID);
 
     expect(result.importedAccountIds).toEqual(['ghe.example.com:168']);
     expect(result.accounts).toMatchObject([
       { accountId: existing.id, login: 'monalisa', isDefault: true },
       { accountId: 'ghe.example.com:168', login: 'enterprise', isDefault: false },
     ]);
-    await expect(registry.resolveToken('ghe.example.com:168')).resolves.toBe('token-ghe');
+    await expect(registry.resolveToken(ORG_ID, 'ghe.example.com:168')).resolves.toBe('token-ghe');
   });
 
   it('deduplicates imported account ids returned by the CLI importer', async () => {
@@ -152,7 +158,7 @@ describe('GitHubAccountService', () => {
       return [account, account];
     };
 
-    const result = await service.importCliAccounts();
+    const result = await service.importCliAccounts(ORG_ID);
 
     expect(result.importedAccountIds).toEqual(['github.com:42']);
   });
@@ -160,19 +166,19 @@ describe('GitHubAccountService', () => {
   it('returns the fallback default when removing the default account', async () => {
     const first = await upsertAccount('monalisa', '42');
     const second = await upsertAccount('octocat', '84');
-    await registry.setDefaultAccountId(second.id);
+    await registry.setDefaultAccountId(ORG_ID, second.id);
 
-    const accounts = await service.removeAccount(second.id);
+    const accounts = await service.removeAccount(ORG_ID, second.id);
 
     expect(accounts).toMatchObject([{ accountId: first.id, isDefault: true }]);
-    await expect(registry.resolveToken(second.id)).resolves.toBeNull();
-    expect(clearOctokitCache).toHaveBeenCalledWith('github.com', second.id);
+    await expect(registry.resolveToken(ORG_ID, second.id)).resolves.toBeNull();
+    expect(clearOctokitCache).toHaveBeenCalledWith(ORG_ID, 'github.com', second.id);
   });
 
   it('returns null when removing an unknown account id', async () => {
     await upsertAccount('monalisa', '42');
 
-    await expect(service.removeAccount('github.com:missing')).resolves.toBeNull();
-    await expect(service.listAccounts()).resolves.toHaveLength(1);
+    await expect(service.removeAccount(ORG_ID, 'github.com:missing')).resolves.toBeNull();
+    await expect(service.listAccounts(ORG_ID)).resolves.toHaveLength(1);
   });
 });

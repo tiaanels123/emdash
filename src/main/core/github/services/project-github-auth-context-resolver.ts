@@ -1,6 +1,5 @@
 import type { GitHubApiAuthContext } from '@main/core/github/services/github-api-auth-service';
 import type { ProjectSettingsProvider } from '@main/core/projects/settings/provider';
-import { getProjectOrganizationId } from '@main/core/projects/operations/getProjects';
 import { err, ok, type Result } from '@shared/lib/result';
 
 export type ProjectGitHubAuthContextError =
@@ -46,6 +45,7 @@ export class ProjectGitHubAuthContextResolver {
     private readonly deps: {
       projects: ProjectLookup;
       logger: WarningLogger;
+      getOrganizationId: (projectId: string) => Promise<string>;
     }
   ) {}
 
@@ -62,7 +62,7 @@ export class ProjectGitHubAuthContextResolver {
     }
 
     try {
-      const organizationId = await getProjectOrganizationId(projectId);
+      const organizationId = await this.deps.getOrganizationId(projectId);
       const settings = await project.settings.get();
       if (!Object.hasOwn(settings, 'githubAccountId')) {
         return err({

@@ -1,42 +1,45 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { IExecutionContext } from '@main/core/execution-context/types';
 import type { GitHubUser } from '@shared/github';
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import {
   GitHubAccountRegistry,
+  type GitHubAccount,
   type GitHubAccountMetadataStore,
   type GitHubAccountSecretStore,
+  type GitHubRemovedCliAccount,
 } from './github-account-registry';
 import { GitHubCliAccountImportService } from './github-cli-account-import';
 
+const ORG_ID = PERSONAL_ORGANIZATION_ID;
+
 class InMemoryMetadataStore implements GitHubAccountMetadataStore {
-  accounts = null as Awaited<ReturnType<GitHubAccountMetadataStore['getAccounts']>>;
-  defaultAccountId: string | null = null;
-  removedCliAccounts = null as Awaited<
-    ReturnType<GitHubAccountMetadataStore['getRemovedCliAccounts']>
-  >;
+  private readonly accountsByOrg = new Map<string, GitHubAccount[]>();
+  private readonly defaultAccountIdByOrg = new Map<string, string | null>();
+  private readonly removedCliAccountsByOrg = new Map<string, GitHubRemovedCliAccount[]>();
 
-  async getAccounts() {
-    return this.accounts;
+  async getAccounts(organizationId: string) {
+    return this.accountsByOrg.get(organizationId) ?? null;
   }
 
-  async setAccounts(accounts: NonNullable<typeof this.accounts>) {
-    this.accounts = accounts;
+  async setAccounts(organizationId: string, accounts: GitHubAccount[]) {
+    this.accountsByOrg.set(organizationId, accounts);
   }
 
-  async getDefaultAccountId() {
-    return this.defaultAccountId;
+  async getDefaultAccountId(organizationId: string) {
+    return this.defaultAccountIdByOrg.get(organizationId) ?? null;
   }
 
-  async setDefaultAccountId(accountId: string | null) {
-    this.defaultAccountId = accountId;
+  async setDefaultAccountId(organizationId: string, accountId: string | null) {
+    this.defaultAccountIdByOrg.set(organizationId, accountId);
   }
 
-  async getRemovedCliAccounts() {
-    return this.removedCliAccounts;
+  async getRemovedCliAccounts(organizationId: string) {
+    return this.removedCliAccountsByOrg.get(organizationId) ?? null;
   }
 
-  async setRemovedCliAccounts(accounts: NonNullable<typeof this.removedCliAccounts>) {
-    this.removedCliAccounts = accounts;
+  async setRemovedCliAccounts(organizationId: string, accounts: GitHubRemovedCliAccount[]) {
+    this.removedCliAccountsByOrg.set(organizationId, accounts);
   }
 }
 
@@ -119,19 +122,19 @@ describe('GitHubCliAccountImportService', () => {
       })
     );
 
-    const imported = await service.importAccounts();
+    const imported = await service.importAccounts(ORG_ID);
 
     expect(imported.map((account) => account.id)).toEqual(['github.com:42', 'github.com:84']);
-    await expect(registry.resolveToken('github.com:42')).resolves.toBe('gho_monalisa');
-    await expect(registry.resolveToken('github.com:84')).resolves.toBe('gho_octocat');
-    await expect(registry.getDefaultAccountId()).resolves.toBe('github.com:42');
+    await expect(registry.resolveToken(ORG_ID, 'github.com:42')).resolves.toBe('gho_monalisa');
+    await expect(registry.resolveToken(ORG_ID, 'github.com:84')).resolves.toBe('gho_octocat');
+    await expect(registry.getDefaultAccountId(ORG_ID)).resolves.toBe('github.com:42');
   });
 
   it('bounds the GitHub CLI status call so startup cannot hang indefinitely', async () => {
     const ctx = makeCtx(JSON.stringify({ hosts: {} }));
     const service = new GitHubCliAccountImportService(registry, ctx, { getAuthenticatedUser });
 
-    await service.importAccounts();
+    await service.importAccounts(ORG_ID);
 
     expect(ctx.exec).toHaveBeenCalledWith(
       'gh',
@@ -141,7 +144,7 @@ describe('GitHubCliAccountImportService', () => {
   });
 
   it('keeps existing linked accounts that are no longer reported by GitHub CLI', async () => {
-    await registry.upsertAccount({
+    await registry.upsertAccount(ORG_ID, {
       accessToken: 'gho_existing',
       credentialSource: 'cli',
       providerAccount: {
@@ -169,10 +172,10 @@ describe('GitHubCliAccountImportService', () => {
       })
     );
 
-    await service.importAccounts();
+    await service.importAccounts(ORG_ID);
 
-    await expect(registry.listAccounts()).resolves.toHaveLength(2);
-    await expect(registry.resolveToken('github.com:168')).resolves.toBe('gho_existing');
+    await expect(registry.listAccounts(ORG_ID)).resolves.toHaveLength(2);
+    await expect(registry.resolveToken(ORG_ID, 'github.com:168')).resolves.toBe('gho_existing');
   });
 
   it('ignores CLI entries that cannot be resolved to a GitHub user', async () => {
@@ -200,10 +203,10 @@ describe('GitHubCliAccountImportService', () => {
       })
     );
 
-    const imported = await service.importAccounts();
+    const imported = await service.importAccounts(ORG_ID);
 
     expect(imported.map((account) => account.id)).toEqual(['github.com:42']);
-    await expect(registry.listAccounts()).resolves.toHaveLength(1);
+    await expect(registry.listAccounts(ORG_ID)).resolves.toHaveLength(1);
   });
 
   it('imports GitHub Enterprise accounts reported by GitHub CLI', async () => {
@@ -223,11 +226,13 @@ describe('GitHubCliAccountImportService', () => {
       })
     );
 
-    const imported = await service.importAccounts();
+    const imported = await service.importAccounts(ORG_ID);
 
     expect(imported.map((account) => account.id)).toEqual(['ghe.example.com:168']);
     expect(getAuthenticatedUser).toHaveBeenCalledWith('ghes_enterprise', 'ghe.example.com');
-    await expect(registry.resolveToken('ghe.example.com:168')).resolves.toBe('ghes_enterprise');
+    await expect(registry.resolveToken(ORG_ID, 'ghe.example.com:168')).resolves.toBe(
+      'ghes_enterprise'
+    );
   });
 
   it('uses the CLI hosts map key as the authoritative account host', async () => {
@@ -247,14 +252,14 @@ describe('GitHubCliAccountImportService', () => {
       })
     );
 
-    const imported = await service.importAccounts();
+    const imported = await service.importAccounts(ORG_ID);
 
     expect(imported.map((account) => account.id)).toEqual(['ghe.example.com:168']);
     expect(getAuthenticatedUser).toHaveBeenCalledWith('ghes_enterprise', 'ghe.example.com');
   });
 
   it('skips tombstoned CLI accounts during startup import', async () => {
-    const account = await registry.upsertAccount({
+    const account = await registry.upsertAccount(ORG_ID, {
       accessToken: 'gho_monalisa',
       credentialSource: 'cli',
       providerAccount: {
@@ -265,7 +270,7 @@ describe('GitHubCliAccountImportService', () => {
         avatarUrl: '',
       },
     });
-    await registry.removeAccount(account.id);
+    await registry.removeAccount(ORG_ID, account.id);
     const service = makeService(
       JSON.stringify({
         hosts: {
@@ -282,13 +287,15 @@ describe('GitHubCliAccountImportService', () => {
       })
     );
 
-    await expect(service.importAccounts({ skipRemovedAccounts: true })).resolves.toEqual([]);
-    await expect(registry.listAccounts()).resolves.toEqual([]);
-    await expect(registry.listRemovedCliAccounts()).resolves.toHaveLength(1);
+    await expect(service.importAccounts(ORG_ID, { skipRemovedAccounts: true })).resolves.toEqual(
+      []
+    );
+    await expect(registry.listAccounts(ORG_ID)).resolves.toEqual([]);
+    await expect(registry.listRemovedCliAccounts(ORG_ID)).resolves.toHaveLength(1);
   });
 
   it('explicit imports reconnect tombstoned CLI accounts and clear the tombstone', async () => {
-    const account = await registry.upsertAccount({
+    const account = await registry.upsertAccount(ORG_ID, {
       accessToken: 'gho_monalisa',
       credentialSource: 'cli',
       providerAccount: {
@@ -299,7 +306,7 @@ describe('GitHubCliAccountImportService', () => {
         avatarUrl: '',
       },
     });
-    await registry.removeAccount(account.id);
+    await registry.removeAccount(ORG_ID, account.id);
     const service = makeService(
       JSON.stringify({
         hosts: {
@@ -316,9 +323,9 @@ describe('GitHubCliAccountImportService', () => {
       })
     );
 
-    await expect(service.importAccounts()).resolves.toMatchObject([
+    await expect(service.importAccounts(ORG_ID)).resolves.toMatchObject([
       { id: 'github.com:42', credentialSource: 'cli' },
     ]);
-    await expect(registry.listRemovedCliAccounts()).resolves.toEqual([]);
+    await expect(registry.listRemovedCliAccounts(ORG_ID)).resolves.toEqual([]);
   });
 });

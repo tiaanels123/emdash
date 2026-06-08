@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { err, ok } from '@shared/lib/result';
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import {
   GitHubAccountRegistry,
   type GitHubAccountMetadataStore,
   type GitHubAccountSecretStore,
 } from '../accounts/github-account-registry';
 import { GitHubApiAuthService } from './github-api-auth-service';
+
+const ORG_ID = PERSONAL_ORGANIZATION_ID;
 
 class InMemoryMetadataStore implements GitHubAccountMetadataStore {
   accounts = null as Awaited<ReturnType<GitHubAccountMetadataStore['getAccounts']>>;
@@ -14,27 +17,30 @@ class InMemoryMetadataStore implements GitHubAccountMetadataStore {
     ReturnType<GitHubAccountMetadataStore['getRemovedCliAccounts']>
   >;
 
-  async getAccounts() {
+  async getAccounts(_organizationId: string) {
     return this.accounts;
   }
 
-  async setAccounts(accounts: NonNullable<typeof this.accounts>) {
+  async setAccounts(_organizationId: string, accounts: NonNullable<typeof this.accounts>) {
     this.accounts = accounts;
   }
 
-  async getDefaultAccountId() {
+  async getDefaultAccountId(_organizationId: string) {
     return this.defaultAccountId;
   }
 
-  async setDefaultAccountId(accountId: string | null) {
+  async setDefaultAccountId(_organizationId: string, accountId: string | null) {
     this.defaultAccountId = accountId;
   }
 
-  async getRemovedCliAccounts() {
+  async getRemovedCliAccounts(_organizationId: string) {
     return this.removedCliAccounts;
   }
 
-  async setRemovedCliAccounts(accounts: NonNullable<typeof this.removedCliAccounts>) {
+  async setRemovedCliAccounts(
+    _organizationId: string,
+    accounts: NonNullable<typeof this.removedCliAccounts>
+  ) {
     this.removedCliAccounts = accounts;
   }
 }
@@ -77,7 +83,7 @@ describe('GitHubApiAuthService', () => {
     login?: string;
     token?: string;
   } = {}) {
-    return registry.upsertAccount({
+    return registry.upsertAccount(ORG_ID, {
       accessToken: token,
       credentialSource: 'emdash_oauth',
       providerAccount: {
@@ -93,9 +99,9 @@ describe('GitHubApiAuthService', () => {
   it('uses the selected GitHub.com account token when an account id is provided', async () => {
     await upsertAccount({ providerAccountId: '42', token: 'selected-account-token' });
 
-    await expect(service.getToken('github.com', { accountId: 'github.com:42' })).resolves.toEqual(
-      ok('selected-account-token')
-    );
+    await expect(
+      service.getToken('github.com', { organizationId: ORG_ID, accountId: 'github.com:42' })
+    ).resolves.toEqual(ok('selected-account-token'));
   });
 
   it('uses the selected GitHub Enterprise account token when an account id is provided', async () => {
@@ -108,6 +114,7 @@ describe('GitHubApiAuthService', () => {
 
     await expect(
       service.getToken('GHE.EXAMPLE.COM', {
+        organizationId: ORG_ID,
         accountId: 'ghe.example.com:168',
       })
     ).resolves.toEqual(ok('selected-ghes-account-token'));
@@ -116,7 +123,9 @@ describe('GitHubApiAuthService', () => {
   it('returns account not found when the selected account is missing', async () => {
     await upsertAccount({ providerAccountId: '84' });
 
-    await expect(service.getToken('github.com', { accountId: 'github.com:42' })).resolves.toEqual(
+    await expect(
+      service.getToken('github.com', { organizationId: ORG_ID, accountId: 'github.com:42' })
+    ).resolves.toEqual(
       err({
         type: 'account_not_found',
         host: 'github.com',
@@ -131,7 +140,7 @@ describe('GitHubApiAuthService', () => {
     await upsertAccount({ providerAccountId: '42' });
 
     await expect(
-      service.getToken('ghe.example.com', { accountId: 'github.com:42' })
+      service.getToken('ghe.example.com', { organizationId: ORG_ID, accountId: 'github.com:42' })
     ).resolves.toEqual(
       err({
         type: 'account_host_mismatch',
@@ -147,9 +156,11 @@ describe('GitHubApiAuthService', () => {
 
   it('returns token missing when the selected account token is missing', async () => {
     const account = await upsertAccount({ providerAccountId: '42' });
-    await secretStore.deleteSecret(`github-account-token:${account.id}`);
+    await secretStore.deleteSecret(`github-account-token:${ORG_ID}:${account.id}`);
 
-    await expect(service.getToken('github.com', { accountId: 'github.com:42' })).resolves.toEqual(
+    await expect(
+      service.getToken('github.com', { organizationId: ORG_ID, accountId: 'github.com:42' })
+    ).resolves.toEqual(
       err({
         type: 'token_missing',
         host: 'github.com',
@@ -163,7 +174,9 @@ describe('GitHubApiAuthService', () => {
   it('uses the default account when no account id is provided and the default host matches', async () => {
     await upsertAccount({ providerAccountId: '42', token: 'default-account-token' });
 
-    await expect(service.getToken('www.github.com')).resolves.toEqual(ok('default-account-token'));
+    await expect(service.getToken('www.github.com', { organizationId: ORG_ID })).resolves.toEqual(
+      ok('default-account-token')
+    );
   });
 
   it('uses a default GitHub Enterprise account when no account id is provided and the host matches', async () => {
@@ -174,13 +187,15 @@ describe('GitHubApiAuthService', () => {
       token: 'default-ghes-token',
     });
 
-    await expect(service.getToken('ghe.example.com')).resolves.toEqual(ok('default-ghes-token'));
+    await expect(service.getToken('ghe.example.com', { organizationId: ORG_ID })).resolves.toEqual(
+      ok('default-ghes-token')
+    );
   });
 
   it('does not use the default account when no account id is provided and the host differs', async () => {
     await upsertAccount({ providerAccountId: '42' });
 
-    await expect(service.getToken('ghe.example.com')).resolves.toEqual(
+    await expect(service.getToken('ghe.example.com', { organizationId: ORG_ID })).resolves.toEqual(
       err({
         type: 'auth_required',
         host: 'ghe.example.com',
@@ -192,7 +207,7 @@ describe('GitHubApiAuthService', () => {
   });
 
   it('returns a GHES login hint when no account is selected for an enterprise host', async () => {
-    await expect(service.getToken('ghe.example.com')).resolves.toEqual(
+    await expect(service.getToken('ghe.example.com', { organizationId: ORG_ID })).resolves.toEqual(
       err({
         type: 'auth_required',
         host: 'ghe.example.com',

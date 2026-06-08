@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { githubAuthErrorChannel, githubAuthSuccessChannel } from '@shared/events/githubEvents';
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
+
+const ORG_ID = PERSONAL_ORGANIZATION_ID;
 
 const mocks = vi.hoisted(() => ({
   emit: vi.fn(),
@@ -90,7 +93,7 @@ describe('githubController auth', () => {
 
     const { githubController } = await import('./controller');
 
-    await expect(githubController.auth()).resolves.toEqual({
+    await expect(githubController.auth(ORG_ID)).resolves.toEqual({
       success: true,
       account: {
         accountId: 'github.com:42',
@@ -101,6 +104,8 @@ describe('githubController auth', () => {
         isDefault: true,
       },
     });
+    expect(mocks.startDeviceFlow).toHaveBeenCalledWith(ORG_ID);
+    expect(mocks.listAccounts).toHaveBeenCalledWith(ORG_ID);
     expect(mocks.emit).toHaveBeenCalledWith(githubAuthSuccessChannel, {
       user,
     });
@@ -126,10 +131,12 @@ describe('githubController auth', () => {
 
     const { githubController } = await import('./controller');
 
-    await expect(githubController.auth()).resolves.toEqual({
+    await expect(githubController.auth(ORG_ID)).resolves.toEqual({
       success: false,
       error: 'Failed to register GitHub account',
     });
+    expect(mocks.startDeviceFlow).toHaveBeenCalledWith(ORG_ID);
+    expect(mocks.listAccounts).toHaveBeenCalledWith(ORG_ID);
     expect(mocks.emit).toHaveBeenCalledWith(githubAuthErrorChannel, {
       error: 'account_registration_failed',
       message: 'Failed to register GitHub account',
@@ -154,10 +161,12 @@ describe('githubController auth', () => {
 
     const { githubController } = await import('./controller');
 
-    await expect(githubController.auth()).resolves.toEqual({
+    await expect(githubController.auth(ORG_ID)).resolves.toEqual({
       success: false,
       error: 'Failed to register GitHub account',
     });
+    expect(mocks.startDeviceFlow).toHaveBeenCalledWith(ORG_ID);
+    expect(mocks.listAccounts).toHaveBeenCalledWith(ORG_ID);
     expect(mocks.emit).toHaveBeenCalledWith(githubAuthErrorChannel, {
       error: 'account_registration_failed',
       message: 'Failed to register GitHub account',

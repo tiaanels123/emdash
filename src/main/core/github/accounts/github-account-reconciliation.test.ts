@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import { GitHubAccountReconciliationService } from './github-account-reconciliation';
 import type { GitHubAccount } from './github-account-registry';
 
@@ -18,11 +19,13 @@ function account(id: string, credentialSource: GitHubAccount['credentialSource']
 class LegacyBackfill {
   result: GitHubAccount | null = account('github.com:42', 'emdash_oauth');
   error: Error | null = null;
+  organizationIds: string[] = [];
 
   constructor(private readonly calls: string[]) {}
 
-  async backfillLegacyToken() {
+  async backfillLegacyToken(organizationId: string) {
     this.calls.push('legacy');
+    this.organizationIds.push(organizationId);
     if (this.error) throw this.error;
     return this.result;
   }
@@ -31,12 +34,14 @@ class LegacyBackfill {
 class CliImporter {
   result: GitHubAccount[] = [account('github.com:42', 'cli'), account('github.com:84', 'cli')];
   error: Error | null = null;
+  organizationIds: string[] = [];
   options: unknown[] = [];
 
   constructor(private readonly calls: string[]) {}
 
-  async importAccounts(options?: unknown) {
+  async importAccounts(organizationId: string, options?: unknown) {
     this.calls.push('cli');
+    this.organizationIds.push(organizationId);
     this.options.push(options);
     if (this.error) throw this.error;
     return this.result;
@@ -79,6 +84,8 @@ describe('GitHubAccountReconciliationService', () => {
       importedCliAccountIds: ['github.com:42', 'github.com:84'],
     });
     expect(cliImporter.options).toEqual([{ skipRemovedAccounts: true }]);
+    expect(legacyBackfill.organizationIds).toEqual([PERSONAL_ORGANIZATION_ID]);
+    expect(cliImporter.organizationIds).toEqual([PERSONAL_ORGANIZATION_ID]);
     expect(logger.warnings).toEqual([]);
   });
 
