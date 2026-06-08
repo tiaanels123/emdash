@@ -379,6 +379,45 @@ describe('computeBaseRef', () => {
   });
 });
 
+describe('GitService.detectInfo', () => {
+  it('uses the remote default branch (origin/HEAD) as the base ref, not the current feature branch', async () => {
+    const service = makeService(
+      makePermissiveExec({
+        'rev-parse --is-inside-work-tree': 'true',
+        remote: 'origin',
+        'symbolic-ref refs/remotes/origin/HEAD --short': 'origin/main',
+        // The repo is checked out on a feature branch; this must NOT become the base ref.
+        'branch --show-current': 'hotfix/1204-foo',
+        'rev-parse --show-toplevel': '/repo',
+      })
+    );
+
+    await expect(service.detectInfo()).resolves.toEqual({
+      isGitRepo: true,
+      baseRef: 'origin/main',
+      rootPath: '/repo',
+    });
+  });
+
+  it('falls back to the current branch when the remote HEAD is not recorded', async () => {
+    const service = makeService(
+      makePermissiveExec({
+        'rev-parse --is-inside-work-tree': 'true',
+        remote: 'origin',
+        // symbolic-ref is unmapped -> '' (origin/HEAD not set), so the current branch wins.
+        'branch --show-current': 'develop',
+        'rev-parse --show-toplevel': '/repo',
+      })
+    );
+
+    await expect(service.detectInfo()).resolves.toEqual({
+      isGitRepo: true,
+      baseRef: 'origin/develop',
+      rootPath: '/repo',
+    });
+  });
+});
+
 describe('GitService.push', () => {
   it('pushes the current branch to the preferred remote explicitly', async () => {
     const svc = makeService(
