@@ -5,6 +5,7 @@ import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
@@ -68,18 +69,20 @@ export const OrganizationSwitcher = observer(function OrganizationSwitcher() {
           }
         />
         <DropdownMenuContent className="min-w-56">
-          <DropdownMenuLabel>Organizations</DropdownMenuLabel>
-          <DropdownMenuRadioGroup value={active.id}>
-            {organizations.map((org) => (
-              <DropdownMenuRadioItem
-                key={org.id}
-                value={org.id}
-                onClick={() => store.setActiveOrganization(org.id)}
-              >
-                {org.name}
-              </DropdownMenuRadioItem>
-            ))}
-          </DropdownMenuRadioGroup>
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>Organizations</DropdownMenuLabel>
+            <DropdownMenuRadioGroup value={active.id}>
+              {organizations.map((org) => (
+                <DropdownMenuRadioItem
+                  key={org.id}
+                  value={org.id}
+                  onClick={() => store.setActiveOrganization(org.id)}
+                >
+                  {org.name}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuGroup>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => showOrgModal({ mode: 'create' })}>
             <Plus className="size-4" />
