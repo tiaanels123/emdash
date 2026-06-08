@@ -50,6 +50,9 @@ const IntegrationsCard: React.FC = () => {
     isTrelloConnected,
     isTrelloLoading,
     disconnectTrello,
+    isAzureDevopsConnected,
+    isAzureDevopsLoading,
+    disconnectAzureDevops,
   } = useIntegrationsContext();
 
   const showIntegrationSetup = useShowModal('integrationSetupModal');
@@ -217,6 +220,23 @@ const IntegrationsCard: React.FC = () => {
           name: 'Trello',
           credential: 'credentials',
           onDisconnect: disconnectTrello,
+        }),
+    },
+    {
+      id: 'azuredevops',
+      name: 'Azure DevOps',
+      description:
+        isAzureDevopsConnected && connectionStatus.azuredevops.displayName
+          ? connectionStatus.azuredevops.displayName
+          : 'Work on Azure Boards work items',
+      connected: !!isAzureDevopsConnected,
+      loading: isAzureDevopsLoading,
+      onConnect: () => showIntegrationSetup({ integration: 'azuredevops' }),
+      onDisconnect: () =>
+        confirmDisconnect({
+          name: 'Azure DevOps',
+          credential: 'credentials',
+          onDisconnect: disconnectAzureDevops,
         }),
     },
   ];

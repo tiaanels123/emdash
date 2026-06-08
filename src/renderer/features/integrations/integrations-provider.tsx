@@ -43,6 +43,17 @@ function validateInstanceCredentials(input: { instanceUrl: string; token: string
   return null;
 }
 
+function validateAzureDevOpsCredentials(input: {
+  organization: string;
+  pat: string;
+  project?: string;
+}): string | null {
+  if (!input.organization?.trim() || !input.pat?.trim()) {
+    return 'Organization and personal access token are required.';
+  }
+  return null;
+}
+
 function validateMondayCredentials(input: { token: string; boardUrls: string }): string | null {
   if (!input.token?.trim()) {
     return 'API token is required.';
@@ -135,6 +146,16 @@ const PROVIDER_CONNECTION_CONFIG = {
     fallbackError: DEFAULT_CONNECT_ERROR,
     validateInput: validateTrelloCredentials,
   },
+  azuredevops: {
+    connectMutationFn: (
+      organizationId: string,
+      credentials: { organization: string; pat: string; project?: string }
+    ) => rpc.azureDevops.saveCredentials(organizationId, credentials),
+    disconnectMutationFn: (organizationId: string) =>
+      rpc.azureDevops.clearCredentials(organizationId),
+    fallbackError: DEFAULT_CONNECT_ERROR,
+    validateInput: validateAzureDevOpsCredentials,
+  },
 } as const;
 
 type IntegrationsContextValue = {
@@ -151,6 +172,7 @@ type IntegrationsContextValue = {
   isAsanaConnected: boolean | null;
   isMondayConnected: boolean | null;
   isTrelloConnected: boolean | null;
+  isAzureDevopsConnected: boolean | null;
 
   // Auth mutations stay per provider.
   isLinearLoading: boolean;
@@ -162,6 +184,7 @@ type IntegrationsContextValue = {
   isAsanaLoading: boolean;
   isMondayLoading: boolean;
   isTrelloLoading: boolean;
+  isAzureDevopsLoading: boolean;
   connectLinear: (apiKey: string) => Promise<void>;
   disconnectLinear: () => Promise<void>;
   connectJira: (credentials: { siteUrl: string; email: string; token: string }) => Promise<void>;
@@ -184,6 +207,12 @@ type IntegrationsContextValue = {
     boardUrls: string;
   }) => Promise<void>;
   disconnectTrello: () => Promise<void>;
+  connectAzureDevops: (credentials: {
+    organization: string;
+    pat: string;
+    project?: string;
+  }) => Promise<void>;
+  disconnectAzureDevops: () => Promise<void>;
 };
 
 const IntegrationsContext = createContext<IntegrationsContextValue | null>(null);
@@ -267,6 +296,11 @@ export const IntegrationsProvider = observer(function IntegrationsProvider({
     organizationId,
     invalidate: invalidateStatuses,
   });
+  const azureDevopsConnection = useProviderConnection({
+    ...PROVIDER_CONNECTION_CONFIG.azuredevops,
+    organizationId,
+    invalidate: invalidateStatuses,
+  });
 
   const connectionStatus = statusData ?? DEFAULT_CONNECTION_STATUS;
 
@@ -284,6 +318,7 @@ export const IntegrationsProvider = observer(function IntegrationsProvider({
         isAsanaConnected: isConnected(statusData, 'asana'),
         isMondayConnected: isConnected(statusData, 'monday'),
         isTrelloConnected: isConnected(statusData, 'trello'),
+        isAzureDevopsConnected: isConnected(statusData, 'azuredevops'),
         isLinearLoading: isInitialConnectionCheck || linearConnection.isLoading,
         isJiraLoading: isInitialConnectionCheck || jiraConnection.isLoading,
         isGitlabLoading: isInitialConnectionCheck || gitlabConnection.isLoading,
@@ -293,6 +328,7 @@ export const IntegrationsProvider = observer(function IntegrationsProvider({
         isAsanaLoading: isInitialConnectionCheck || asanaConnection.isLoading,
         isMondayLoading: isInitialConnectionCheck || mondayConnection.isLoading,
         isTrelloLoading: isInitialConnectionCheck || trelloConnection.isLoading,
+        isAzureDevopsLoading: isInitialConnectionCheck || azureDevopsConnection.isLoading,
         connectLinear: linearConnection.connect,
         disconnectLinear: linearConnection.disconnect,
         connectJira: jiraConnection.connect,
@@ -311,6 +347,8 @@ export const IntegrationsProvider = observer(function IntegrationsProvider({
         disconnectMonday: mondayConnection.disconnect,
         connectTrello: trelloConnection.connect,
         disconnectTrello: trelloConnection.disconnect,
+        connectAzureDevops: azureDevopsConnection.connect,
+        disconnectAzureDevops: azureDevopsConnection.disconnect,
       }}
     >
       {children}

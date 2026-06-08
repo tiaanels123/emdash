@@ -59,6 +59,11 @@ export const ISSUE_PROVIDER_CAPABILITIES: Record<IssueProviderType, IssueProvide
     requiresRepositoryUrl: false,
     supportsIssueContext: true,
   },
+  azuredevops: {
+    requiresProjectPath: false,
+    requiresRepositoryUrl: false,
+    supportsIssueContext: false,
+  },
 };
 
 export type ConnectionStatus = {

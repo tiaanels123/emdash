@@ -1,4 +1,5 @@
 import { asanaIssueProvider } from '@main/core/asana/asana-issue-provider';
+import { azureDevOpsIssueProvider } from '@main/core/azure-devops/azure-devops-issue-provider';
 import { featurebaseIssueProvider } from '@main/core/featurebase/featurebase-issue-provider';
 import { forgejoIssueProvider } from '@main/core/forgejo/forgejo-issue-provider';
 import { githubIssueProvider } from '@main/core/github/github-issue-provider';
@@ -27,6 +28,7 @@ register(plainIssueProvider);
 register(asanaIssueProvider);
 register(mondayIssueProvider);
 register(trelloIssueProvider);
+register(azureDevOpsIssueProvider);
 
 export function getIssueProvider(type: IssueProviderType): IssueProvider | undefined {
   return providers.get(type);
