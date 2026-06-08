@@ -18,6 +18,7 @@ The main process is organized into domain modules under `src/main/core/`. Each d
 - **jira** — Jira integration
 - **linear** — Linear integration
 - **mcp** — MCP service, adapters, config IO, catalog
+- **organizations** — Organization CRUD (top-level layer above projects); integration credentials and provider/agent config are scoped per-organization
 - **projects** — Project management with provider pattern (`local-project-provider.ts`), worktree service, project settings, CRUD operations
 - **pty** — PTY lifecycle (`local-pty.ts`, `ssh2-pty.ts`), session registry, env setup, spawn utilities
 - **repository** — Repository controller
