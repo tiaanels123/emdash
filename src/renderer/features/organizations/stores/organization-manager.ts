@@ -1,6 +1,7 @@
 import { action, computed, makeObservable, observable, runInAction } from 'mobx';
-import { Resource } from '@renderer/lib/stores/resource';
 import { rpc } from '@renderer/lib/ipc';
+import { Resource } from '@renderer/lib/stores/resource';
+import { log } from '@renderer/utils/logger';
 import type { Result } from '@shared/lib/result';
 import {
   type CreateOrganizationParams,
@@ -77,6 +78,33 @@ export class OrganizationManagerStore {
 
   setActiveOrganization(organizationId: string): void {
     this.activeOrganizationId = organizationId;
+    this.materializeActiveOrgMcp();
+  }
+
+  /**
+   * Materializes the active organization's MCP servers onto the agents' on-disk
+   * config files so spawned agents see the active org's servers. Fire-and-forget
+   * — MCP server lists are otherwise read per-org from the database.
+   */
+  private materializeActiveOrgMcp(): void {
+    const organizationId = this.activeId;
+    if (!organizationId) return;
+    void rpc.mcp
+      .materialize(organizationId)
+      .then((result) => {
+        if (!result.success) {
+          log.warn('Failed to materialize MCP servers for active organization', {
+            organizationId,
+            error: result.error,
+          });
+        }
+      })
+      .catch((error) => {
+        log.warn('Failed to materialize MCP servers for active organization', {
+          organizationId,
+          error,
+        });
+      });
   }
 
   async createOrganization(params: CreateOrganizationParams): Promise<Organization> {
@@ -89,6 +117,7 @@ export class OrganizationManagerStore {
       runInAction(() => {
         this.activeOrganizationId = organization.id;
       });
+      this.materializeActiveOrgMcp();
       return organization;
     });
   }
@@ -123,6 +152,8 @@ export class OrganizationManagerStore {
             this.activeOrganizationId = null;
           }
         });
+        // Active org fell back to another org — reflect its servers on disk.
+        this.materializeActiveOrgMcp();
       }
       return result;
     });

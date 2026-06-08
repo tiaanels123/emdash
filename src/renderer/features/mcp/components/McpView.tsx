@@ -29,7 +29,7 @@ export const McpView: React.FC = () => {
     closeModal();
     showConfirm({
       title: 'Remove MCP server?',
-      description: `This will remove "${serverName}" from all agents. This action cannot be undone.`,
+      description: `This will remove "${serverName}" from all agents in this organization. This action cannot be undone.`,
       confirmLabel: 'Remove',
       onSuccess: () => void removeServer(serverName),
     });
