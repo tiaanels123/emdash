@@ -95,6 +95,10 @@ export class ProjectProvider implements IDisposable {
     return this.repository.getRemoteState();
   }
 
+  getRemotes(): Promise<{ name: string; url: string }[]> {
+    return this.repository.getRemotes();
+  }
+
   getWorktreeForBranch(branchName: string): Promise<string | undefined> {
     return this.worktreeService.getWorktree(branchName);
   }

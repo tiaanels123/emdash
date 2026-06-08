@@ -33,6 +33,10 @@ vi.mock('@main/core/github/services/repo-service', () => ({
   repoService: {},
 }));
 
+vi.mock('@main/core/github/services/backfill-organization-project-accounts', () => ({
+  backfillOrganizationProjectAccounts: vi.fn(),
+}));
+
 vi.mock('@main/core/ssh/lifecycle/production-ssh-connection-manager', () => ({
   sshConnectionManager: {},
 }));

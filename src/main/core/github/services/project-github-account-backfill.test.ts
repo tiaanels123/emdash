@@ -41,10 +41,10 @@ class FakeProjectSettings {
 
 function makeProject({
   settings,
-  selectedRemoteUrl = 'https://github.com/acme/repo',
+  remotes = [{ name: 'origin', url: 'https://github.com/acme/repo' }],
 }: {
   settings?: ProjectSettings;
-  selectedRemoteUrl?: string | null;
+  remotes?: { name: string; url: string }[];
 } = {}) {
   const projectSettings = new FakeProjectSettings();
   if (settings) projectSettings.settings = settings;
@@ -52,10 +52,7 @@ function makeProject({
     project: {
       projectId: 'project-1',
       settings: projectSettings,
-      getRemoteState: vi.fn(async () => ({
-        hasRemote: selectedRemoteUrl !== null,
-        selectedRemoteUrl,
-      })),
+      getRemotes: vi.fn(async () => remotes),
     },
     settings: projectSettings,
   };
@@ -98,7 +95,7 @@ describe('ProjectGitHubAccountBackfillService', () => {
   it('backfills GitHub Enterprise projects to an account on the same host', async () => {
     accountLookup.accounts = [account('github.com:42'), account('ghe.example.com:168')];
     const { project, settings } = makeProject({
-      selectedRemoteUrl: 'https://ghe.example.com/acme/repo',
+      remotes: [{ name: 'origin', url: 'https://ghe.example.com/acme/repo' }],
     });
 
     await expect(service.backfillProject(project)).resolves.toEqual({
@@ -118,7 +115,7 @@ describe('ProjectGitHubAccountBackfillService', () => {
       account('github.com:42'),
     ];
     const { project, settings } = makeProject({
-      selectedRemoteUrl: 'https://ghe.example.com/acme/repo',
+      remotes: [{ name: 'origin', url: 'https://ghe.example.com/acme/repo' }],
     });
 
     await expect(service.backfillProject(project)).resolves.toEqual({
@@ -150,7 +147,7 @@ describe('ProjectGitHubAccountBackfillService', () => {
   it('does not backfill projects when no account exists for the remote host', async () => {
     accountLookup.accounts = [account('github.com:42')];
     const { project, settings } = makeProject({
-      selectedRemoteUrl: 'https://ghe.example.com/acme/repo',
+      remotes: [{ name: 'origin', url: 'https://ghe.example.com/acme/repo' }],
     });
 
     await expect(service.backfillProject(project)).resolves.toEqual({ status: 'skipped' });
@@ -165,6 +162,32 @@ describe('ProjectGitHubAccountBackfillService', () => {
 
     await expect(service.backfillProject(project)).resolves.toEqual({ status: 'skipped' });
 
+    expect(settings.update).not.toHaveBeenCalled();
+  });
+
+  it('considers every remote, not just the base remote, to find a matching account', async () => {
+    accountLookup.accounts = [account('github.com:42')];
+    const { project, settings } = makeProject({
+      remotes: [
+        { name: 'fork', url: 'https://gitlab.com/acme/repo' },
+        { name: 'origin', url: 'https://github.com/acme/repo' },
+      ],
+    });
+
+    await expect(service.backfillProject(project)).resolves.toEqual({
+      status: 'updated',
+      accountId: 'github.com:42',
+    });
+
+    expect(settings.patch).toHaveBeenCalledWith({ githubAccountId: 'github.com:42' });
+  });
+
+  it('skips projects that have no remotes', async () => {
+    const { project, settings } = makeProject({ remotes: [] });
+
+    await expect(service.backfillProject(project)).resolves.toEqual({ status: 'skipped' });
+
+    expect(settings.patch).not.toHaveBeenCalled();
     expect(settings.update).not.toHaveBeenCalled();
   });
 });

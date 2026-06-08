@@ -6,6 +6,7 @@ import { SshFileSystem } from '@main/core/fs/impl/ssh-fs';
 import type { FileSystemProvider } from '@main/core/fs/types';
 import { cloneRepository, initializeNewProject } from '@main/core/git/impl/git-repo-utils';
 import { githubAccountService } from '@main/core/github/accounts/github-account-service-instance';
+import { backfillOrganizationProjectAccounts } from '@main/core/github/services/backfill-organization-project-accounts';
 import { githubDeviceFlowService } from '@main/core/github/services/github-device-flow-service-instance';
 import { repoService } from '@main/core/github/services/repo-service';
 import { sshConnectionManager } from '@main/core/ssh/lifecycle/production-ssh-connection-manager';
@@ -65,6 +66,9 @@ export const githubController = createRPCController({
 
       telemetryService.capture('integration_connected', { provider: 'github' });
       events.emit(githubAuthSuccessChannel, { user: result.user });
+      // Backfill mounted projects in this org so they pick up the new account without a
+      // restart. Fire-and-forget: the auth response should not wait on git lookups.
+      void backfillOrganizationProjectAccounts(organizationId);
       return { success: true, account: accountSummary };
     } catch (error) {
       log.error('Failed to register GitHub account after device flow:', error);
@@ -91,6 +95,9 @@ export const githubController = createRPCController({
       const result = await githubAccountService.importCliAccounts(organizationId);
       if (result.importedAccountIds.length > 0) {
         telemetryService.capture('integration_connected', { provider: 'github', source: 'cli' });
+        // Backfill mounted projects in this org so they pick up an account without a
+        // restart. Fire-and-forget: the import response should not wait on git lookups.
+        void backfillOrganizationProjectAccounts(organizationId);
       }
       return result;
     } catch (error) {
