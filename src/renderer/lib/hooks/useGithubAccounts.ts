@@ -1,5 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { getActiveOrganizationId, useActiveOrganizationId } from '@renderer/features/organizations/stores/organization-selectors';
+import {
+  getActiveOrganizationId,
+  useActiveOrganizationId,
+} from '@renderer/features/organizations/stores/organization-selectors';
 import { rpc } from '@renderer/lib/ipc';
 
 export const GITHUB_ACCOUNTS_QUERY_KEY = ['github:accounts'] as const;
@@ -12,11 +15,18 @@ function invalidateGitHubAccountState(queryClient: ReturnType<typeof useQueryCli
   void queryClient.invalidateQueries({ queryKey: ISSUE_CONNECTION_STATUS_QUERY_KEY });
 }
 
-export function useGitHubAccounts() {
-  const organizationId = useActiveOrganizationId();
+/**
+ * Lists GitHub accounts for an organization. Defaults to the active
+ * organization; pass an explicit org id when editing a specific project so the
+ * account list (and any persisted selection) belongs to the *project's* org
+ * rather than whichever org is currently active.
+ */
+export function useGitHubAccounts(organizationId?: string) {
+  const activeOrganizationId = useActiveOrganizationId();
+  const orgId = organizationId ?? activeOrganizationId;
   return useQuery({
-    queryKey: [...GITHUB_ACCOUNTS_QUERY_KEY, organizationId],
-    queryFn: () => rpc.github.listAccounts(organizationId),
+    queryKey: [...GITHUB_ACCOUNTS_QUERY_KEY, orgId],
+    queryFn: () => rpc.github.listAccounts(orgId),
     staleTime: 30_000,
     refetchOnWindowFocus: true,
   });

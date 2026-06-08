@@ -96,8 +96,17 @@ export class McpService {
       let existing: ServerMap;
       try {
         existing = await readServers(meta);
-      } catch {
-        existing = {};
+      } catch (err) {
+        // A transient read failure (e.g. a file lock) must NOT fall through to
+        // the write below — writeServers replaces the entire servers block, so
+        // writing a reset/empty map would wipe servers the user added by hand.
+        // Skip this agent and keep its prior provenance.
+        log.error(
+          `Failed to read MCP config for ${agentId}; skipping to avoid clobbering user servers:`,
+          err
+        );
+        nextProvenance[agentId] = provenance[agentId] ?? [];
+        continue;
       }
 
       const writtenNames: string[] = [];

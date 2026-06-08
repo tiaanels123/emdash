@@ -245,6 +245,30 @@ describe('McpService', () => {
       expect(written.userServer).toBeDefined(); // user server preserved
       expect(storeState.provenance.claude).toEqual(['serverA']);
     });
+
+    it('skips an agent whose config cannot be read instead of clobbering it', async () => {
+      seedOrgServer(ORG, {
+        name: 'serverA',
+        transport: 'stdio',
+        command: 'a',
+        providers: ['claude', 'cursor'],
+      });
+      storeState.provenance = { claude: ['old'], cursor: [] };
+      // claude read fails (e.g. transient file lock); cursor reads fine.
+      mockReadServers.mockImplementation(async (meta: AgentMcpMeta) => {
+        if (meta.agentId === 'claude') throw new Error('EBUSY');
+        return {};
+      });
+
+      await service.materializeOrganization(ORG);
+
+      // claude must NOT be written (would overwrite/clobber user servers).
+      expect(mockWriteServers.mock.calls.find((c) => c[0] === claudeMeta)).toBeUndefined();
+      // cursor still materialized normally.
+      expect(mockWriteServers.mock.calls.find((c) => c[0] === cursorMeta)).toBeDefined();
+      // claude provenance preserved so a later switch can still strip correctly.
+      expect(storeState.provenance.claude).toEqual(['old']);
+    });
   });
 
   describe('first-run import', () => {

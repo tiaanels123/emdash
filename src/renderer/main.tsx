@@ -1,9 +1,10 @@
 import ReactDOM from 'react-dom/client';
 import { setupNavigationGuards } from '@renderer/app/view-registry';
-import { prefetchAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
+import type { OrganizationManagerSnapshot } from '@renderer/features/organizations/stores/organization-manager';
 import './index.css';
 import 'devicon/devicon.min.css';
 import 'katex/dist/katex.min.css';
+import { prefetchAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
 import { setupAppCommandProvider } from '@renderer/lib/commands/app-commands';
 import { setupViewCommandProvider } from '@renderer/lib/commands/registry';
 import { wireCommitHistoryInvalidation } from '@renderer/lib/commit-history-invalidation';
@@ -16,7 +17,6 @@ import { wirePrCacheInvalidation } from '@renderer/lib/pr-cache-invalidation';
 import { viewStateCache } from '@renderer/lib/stores/view-state-cache';
 import { log } from '@renderer/utils/logger';
 import { initSoundPlayer } from '@renderer/utils/soundPlayer';
-import type { OrganizationManagerSnapshot } from '@renderer/features/organizations/stores/organization-manager';
 import type { NavigationSnapshot, SidebarSnapshot } from '@shared/view-state';
 import { App } from './App';
 import { ErrorBoundary } from './lib/components/error-boundary';
@@ -55,6 +55,10 @@ async function bootstrap() {
   setupNavigationGuards();
   if (navResult) appState.navigation.restoreSnapshot(navResult);
   if (orgResult) appState.organizations.restoreSnapshot(orgResult);
+  // Re-sync on-disk agent MCP config to the restored (or fallback) active org so
+  // agents spawned this session never read a previously-materialized org's
+  // servers. Runs unconditionally to cover the missing/stale-snapshot fallback.
+  appState.organizations.materializeActiveOrganization();
   setupAppCommandProvider();
   setupViewCommandProvider();
   if (sidebarResult) {

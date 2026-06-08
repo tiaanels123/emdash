@@ -82,6 +82,16 @@ export class OrganizationManagerStore {
   }
 
   /**
+   * Re-syncs the active organization's MCP servers to disk. Call once at
+   * bootstrap (after `load()` + `restoreSnapshot()`) so agents spawned this
+   * session see the restored/fallback active org's servers even if the on-disk
+   * agent config drifted from the database between sessions.
+   */
+  materializeActiveOrganization(): void {
+    this.materializeActiveOrgMcp();
+  }
+
+  /**
    * Materializes the active organization's MCP servers onto the agents' on-disk
    * config files so spawned agents see the active org's servers. Fire-and-forget
    * — MCP server lists are otherwise read per-org from the database.
