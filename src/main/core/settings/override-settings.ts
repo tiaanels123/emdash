@@ -1,11 +1,17 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { ZodType } from 'zod';
 import { db } from '@main/db/client';
-import { appSettings } from '@main/db/schema';
+import { organizationSettings } from '@main/db/schema';
 import { computeTrueOverrides, mergeDeep } from './utils';
 
+/**
+ * A per-organization override store layered on top of static external defaults.
+ * Overrides are persisted as a single JSON blob per organization in the
+ * `organization_settings` table, keyed by `(organizationId, storageKey)`. Each
+ * organization keeps its own overrides and its own in-memory cache entry.
+ */
 export class OverrideSettings<TConfig extends object> {
-  private cache: Record<string, TConfig> | null = null;
+  private readonly cache = new Map<string, Record<string, TConfig>>();
 
   constructor(
     private readonly storageKey: string,
@@ -16,11 +22,18 @@ export class OverrideSettings<TConfig extends object> {
     ) => Record<string, Partial<TConfig>> = (overrides) => overrides
   ) {}
 
-  private async readRawOverrides(): Promise<Record<string, Partial<TConfig>>> {
+  private async readRawOverrides(
+    organizationId: string
+  ): Promise<Record<string, Partial<TConfig>>> {
     const [row] = await db
       .select()
-      .from(appSettings)
-      .where(eq(appSettings.key, this.storageKey))
+      .from(organizationSettings)
+      .where(
+        and(
+          eq(organizationSettings.organizationId, organizationId),
+          eq(organizationSettings.key, this.storageKey)
+        )
+      )
       .execute();
     if (!row) return {};
     try {
@@ -32,25 +45,40 @@ export class OverrideSettings<TConfig extends object> {
     }
   }
 
-  private async storeOverrides(overrides: Record<string, Partial<TConfig>>): Promise<void> {
+  private async storeOverrides(
+    organizationId: string,
+    overrides: Record<string, Partial<TConfig>>
+  ): Promise<void> {
     if (Object.keys(overrides).length === 0) {
-      await db.delete(appSettings).where(eq(appSettings.key, this.storageKey)).execute();
+      await db
+        .delete(organizationSettings)
+        .where(
+          and(
+            eq(organizationSettings.organizationId, organizationId),
+            eq(organizationSettings.key, this.storageKey)
+          )
+        )
+        .execute();
     } else {
       const serialized = JSON.stringify(overrides);
       await db
-        .insert(appSettings)
-        .values({ key: this.storageKey, value: serialized })
-        .onConflictDoUpdate({ target: appSettings.key, set: { value: serialized } })
+        .insert(organizationSettings)
+        .values({ organizationId, key: this.storageKey, value: serialized, updatedAt: Date.now() })
+        .onConflictDoUpdate({
+          target: [organizationSettings.organizationId, organizationSettings.key],
+          set: { value: serialized, updatedAt: Date.now() },
+        })
         .execute();
     }
-    this.cache = null;
+    this.cache.delete(organizationId);
   }
 
-  async getAll(): Promise<Record<string, TConfig>> {
-    if (this.cache) return this.cache;
+  async getAll(organizationId: string): Promise<Record<string, TConfig>> {
+    const cached = this.cache.get(organizationId);
+    if (cached) return cached;
 
     const externalDefaults = this.getExternalDefaults();
-    const storedOverrides = await this.readRawOverrides();
+    const storedOverrides = await this.readRawOverrides(organizationId);
     const result: Record<string, TConfig> = {};
     const allIds = new Set([...Object.keys(externalDefaults), ...Object.keys(storedOverrides)]);
 
@@ -60,16 +88,19 @@ export class OverrideSettings<TConfig extends object> {
       result[id] = mergeDeep(def, override) as TConfig;
     }
 
-    this.cache = result;
+    this.cache.set(organizationId, result);
     return result;
   }
 
-  async getItem(id: string): Promise<TConfig | undefined> {
-    const all = await this.getAll();
+  async getItem(organizationId: string, id: string): Promise<TConfig | undefined> {
+    const all = await this.getAll(organizationId);
     return all[id];
   }
 
-  async getItemWithMeta(id: string): Promise<{
+  async getItemWithMeta(
+    organizationId: string,
+    id: string
+  ): Promise<{
     value: TConfig;
     defaults: TConfig;
     overrides: Partial<TConfig>;
@@ -78,7 +109,7 @@ export class OverrideSettings<TConfig extends object> {
     const defaults = externalDefaults[id];
     if (!defaults) return null;
 
-    const storedOverrides = await this.readRawOverrides();
+    const storedOverrides = await this.readRawOverrides(organizationId);
     const itemOverrides = (storedOverrides[id] ?? {}) as Record<string, unknown>;
     const trueOverrides = computeTrueOverrides(
       itemOverrides,
@@ -89,29 +120,37 @@ export class OverrideSettings<TConfig extends object> {
     return { value, defaults, overrides: trueOverrides };
   }
 
-  async updateItem(id: string, config: Partial<TConfig>): Promise<void> {
+  async updateItem(organizationId: string, id: string, config: Partial<TConfig>): Promise<void> {
     const externalDefaults = this.getExternalDefaults();
     const defaults = (externalDefaults[id] ?? {}) as Record<string, unknown>;
     const validated = this.itemSchema.parse(config) as Record<string, unknown>;
     const delta = computeTrueOverrides(validated, defaults) as Partial<TConfig>;
 
-    const storedOverrides = await this.readRawOverrides();
+    const storedOverrides = await this.readRawOverrides(organizationId);
     if (Object.keys(delta).length === 0) {
       delete storedOverrides[id];
     } else {
       storedOverrides[id] = delta;
     }
-    await this.storeOverrides(storedOverrides);
+    await this.storeOverrides(organizationId, storedOverrides);
   }
 
-  async resetItem(id: string): Promise<void> {
-    const storedOverrides = await this.readRawOverrides();
+  async resetItem(organizationId: string, id: string): Promise<void> {
+    const storedOverrides = await this.readRawOverrides(organizationId);
     delete storedOverrides[id];
-    await this.storeOverrides(storedOverrides);
+    await this.storeOverrides(organizationId, storedOverrides);
   }
 
-  async resetAll(): Promise<void> {
-    await db.delete(appSettings).where(eq(appSettings.key, this.storageKey)).execute();
-    this.cache = null;
+  async resetAll(organizationId: string): Promise<void> {
+    await db
+      .delete(organizationSettings)
+      .where(
+        and(
+          eq(organizationSettings.organizationId, organizationId),
+          eq(organizationSettings.key, this.storageKey)
+        )
+      )
+      .execute();
+    this.cache.delete(organizationId);
   }
 }

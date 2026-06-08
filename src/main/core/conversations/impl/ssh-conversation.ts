@@ -5,6 +5,7 @@ import { resolveAgentSessionCommandArgs } from '@main/core/conversations/resolve
 import type { ConversationProvider } from '@main/core/conversations/types';
 import type { IExecutionContext } from '@main/core/execution-context/types';
 import { SshFileSystem } from '@main/core/fs/impl/ssh-fs';
+import { getProjectOrganizationId } from '@main/core/projects/operations/getProjects';
 import type { Pty } from '@main/core/pty/pty';
 import { ptySessionRegistry } from '@main/core/pty/pty-session-registry';
 import { resolveSshCommand } from '@main/core/pty/spawn-utils';
@@ -115,7 +116,11 @@ export class SshConversationProvider implements ConversationProvider {
         force: conversation.autoApprove === true,
       });
 
-      const providerConfig = await providerOverrideSettings.getItem(conversation.providerId);
+      const organizationId = await getProjectOrganizationId(conversation.projectId);
+      const providerConfig = await providerOverrideSettings.getItem(
+        organizationId,
+        conversation.providerId
+      );
       const agentSession = resolveAgentSessionCommandArgs(conversation, isResuming, {
         requireProviderSessionId: false,
       });

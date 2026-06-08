@@ -80,6 +80,10 @@ vi.mock('@main/core/settings/provider-settings-service', () => ({
   },
 }));
 
+vi.mock('@main/core/projects/operations/getProjects', () => ({
+  getProjectOrganizationId: vi.fn(async () => '00000000-0000-4000-8000-000000000001'),
+}));
+
 vi.mock('@main/core/settings/settings-service', () => ({
   appSettingsService: {
     get: vi.fn(async (key: string) =>

@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useActiveOrganizationId } from '@renderer/features/organizations/stores/organization-selectors';
 import { rpc } from '@renderer/lib/ipc';
 import type { ProviderCustomConfig } from '@shared/core/app-settings';
 
@@ -10,27 +11,35 @@ type ProviderSettingsMeta = {
 
 export function useProviderSettings(providerId: string) {
   const queryClient = useQueryClient();
+  const organizationId = useActiveOrganizationId();
+
+  const metaQueryKey = ['providerSettings', organizationId, providerId, 'meta'] as const;
+  const allQueryKey = ['providerSettings', organizationId, 'all'] as const;
 
   const { data, isLoading } = useQuery<ProviderSettingsMeta>({
-    queryKey: ['providerSettings', providerId, 'meta'] as const,
+    queryKey: metaQueryKey,
     queryFn: () =>
-      rpc.providerSettings.getItemWithMeta(providerId) as Promise<ProviderSettingsMeta>,
+      rpc.providerSettings.getItemWithMeta(
+        organizationId,
+        providerId
+      ) as Promise<ProviderSettingsMeta>,
     staleTime: 60_000,
   });
 
   const updateMutation = useMutation<void, Error, Partial<ProviderCustomConfig>>({
-    mutationFn: (config) => rpc.providerSettings.updateItem(providerId, config) as Promise<void>,
+    mutationFn: (config) =>
+      rpc.providerSettings.updateItem(organizationId, providerId, config) as Promise<void>,
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['providerSettings', providerId, 'meta'] });
-      void queryClient.invalidateQueries({ queryKey: ['providerSettings', 'all'] });
+      void queryClient.invalidateQueries({ queryKey: metaQueryKey });
+      void queryClient.invalidateQueries({ queryKey: allQueryKey });
     },
   });
 
   const resetMutation = useMutation<void, Error, void>({
-    mutationFn: () => rpc.providerSettings.resetItem(providerId) as Promise<void>,
+    mutationFn: () => rpc.providerSettings.resetItem(organizationId, providerId) as Promise<void>,
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['providerSettings', providerId, 'meta'] });
-      void queryClient.invalidateQueries({ queryKey: ['providerSettings', 'all'] });
+      void queryClient.invalidateQueries({ queryKey: metaQueryKey });
+      void queryClient.invalidateQueries({ queryKey: allQueryKey });
     },
   });
 
