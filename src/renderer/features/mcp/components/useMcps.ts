@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';
+import { useActiveOrganizationId } from '@renderer/features/organizations/stores/organization-selectors';
 import { useToast } from '@renderer/lib/hooks/use-toast';
 import { rpc } from '@renderer/lib/ipc';
 import { captureTelemetry } from '@renderer/utils/telemetryClient';
@@ -11,6 +12,7 @@ const PROVIDERS_QUERY_KEY = ['mcp', 'providers'] as const;
 export function useMcps() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const organizationId = useActiveOrganizationId();
 
   // ── Queries ──────────────────────────────────────────────────────────
 
@@ -19,9 +21,9 @@ export function useMcps() {
     isPending: isLoading,
     refetch: reload,
   } = useQuery({
-    queryKey: MCP_QUERY_KEY,
+    queryKey: [...MCP_QUERY_KEY, organizationId],
     queryFn: async () => {
-      const result = await rpc.mcp.loadAll();
+      const result = await rpc.mcp.loadAll(organizationId);
       if (result.success && result.data) return result.data;
       throw new Error(result.error ?? 'Failed to load MCP servers');
     },
@@ -43,7 +45,7 @@ export function useMcps() {
 
   const saveMutation = useMutation({
     mutationFn: async (payload: { server: McpServer; source: 'catalog' | 'custom' | null }) => {
-      const result = await rpc.mcp.saveServer(payload.server);
+      const result = await rpc.mcp.saveServer(organizationId, payload.server);
       if (!result.success) throw new Error(result.error ?? 'Failed to save server');
     },
     onSuccess: (_, payload) => {
@@ -70,7 +72,7 @@ export function useMcps() {
 
   const removeMutation = useMutation({
     mutationFn: async (serverName: string) => {
-      const result = await rpc.mcp.removeServer(serverName);
+      const result = await rpc.mcp.removeServer(organizationId, serverName);
       if (!result.success) throw new Error(result.error ?? 'Failed to remove server');
     },
     onSuccess: () => {

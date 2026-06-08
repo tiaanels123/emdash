@@ -94,6 +94,30 @@ export const organizationSettings = sqliteTable(
   })
 );
 
+/**
+ * Org-scoped MCP servers — the emdash-owned source of truth for MCP server
+ * configuration. Each organization keeps its own set; the McpService
+ * materializes the active organization's servers into the agents' on-disk
+ * config files. Keyed by (organization_id, name); deleting an organization
+ * removes its servers. `config` holds the JSON-serialized canonical McpServer.
+ */
+export const mcpServers = sqliteTable(
+  'mcp_servers',
+  {
+    organizationId: text('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    config: text('config').notNull(),
+    updatedAt: integer('updated_at')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.organizationId, table.name] }),
+  })
+);
+
 export const projects = sqliteTable(
   'projects',
   {
@@ -546,6 +570,8 @@ export type OrganizationRow = typeof organizations.$inferSelect;
 export type OrganizationInsert = typeof organizations.$inferInsert;
 export type OrganizationSettingsRow = typeof organizationSettings.$inferSelect;
 export type OrganizationSettingsInsert = typeof organizationSettings.$inferInsert;
+export type McpServerRow = typeof mcpServers.$inferSelect;
+export type McpServerInsert = typeof mcpServers.$inferInsert;
 export type ProjectRow = typeof projects.$inferSelect;
 export type ProjectInsert = typeof projects.$inferInsert;
 export type AutomationRow = typeof automations.$inferSelect;

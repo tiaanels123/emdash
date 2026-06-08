@@ -1,7 +1,7 @@
 import { count, eq } from 'drizzle-orm';
 import { deleteProject } from '@main/core/projects/operations/deleteProject';
 import { db } from '@main/db/client';
-import { organizations, organizationSettings, projects } from '@main/db/schema';
+import { mcpServers, organizations, organizationSettings, projects } from '@main/db/schema';
 import { err, ok, type Result } from '@shared/lib/result';
 import {
   type DeleteOrganizationOptions,
@@ -55,6 +55,7 @@ export async function deleteOrganization(
   }
 
   await db.delete(organizationSettings).where(eq(organizationSettings.organizationId, id));
+  await db.delete(mcpServers).where(eq(mcpServers.organizationId, id));
   await db.delete(organizations).where(eq(organizations.id, id));
   return ok();
 }

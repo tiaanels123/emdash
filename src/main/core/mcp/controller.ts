@@ -21,9 +21,9 @@ function mapProviders(agentIds: string[]): McpProvidersResponse[] {
 }
 
 export const mcpController = createRPCController({
-  loadAll: async () => {
+  loadAll: async (organizationId: string) => {
     try {
-      const data = await mcpService.loadAll();
+      const data = await mcpService.loadAll(organizationId);
       return { success: true, data };
     } catch (error) {
       log.error('Failed to load MCP servers:', error);
@@ -31,9 +31,9 @@ export const mcpController = createRPCController({
     }
   },
 
-  saveServer: async (server: McpServer) => {
+  saveServer: async (organizationId: string, server: McpServer) => {
     try {
-      await mcpService.saveServer(server);
+      await mcpService.saveServer(organizationId, server);
       return { success: true };
     } catch (error) {
       log.error('Failed to save MCP server:', error);
@@ -41,12 +41,22 @@ export const mcpController = createRPCController({
     }
   },
 
-  removeServer: async (serverName: string) => {
+  removeServer: async (organizationId: string, serverName: string) => {
     try {
-      await mcpService.removeServer(serverName);
+      await mcpService.removeServer(organizationId, serverName);
       return { success: true };
     } catch (error) {
       log.error('Failed to remove MCP server:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  },
+
+  materialize: async (organizationId: string) => {
+    try {
+      await mcpService.materializeOrganization(organizationId);
+      return { success: true };
+    } catch (error) {
+      log.error('Failed to materialize MCP servers:', error);
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   },
