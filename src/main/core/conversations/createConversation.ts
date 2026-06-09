@@ -50,7 +50,10 @@ export async function createConversation(
     .where(eq(conversations.taskId, params.taskId))
     .limit(1);
 
-  const config = params.autoApprove === undefined ? undefined : { autoApprove: params.autoApprove };
+  const configDraft: { autoApprove?: boolean; effort?: string } = {};
+  if (params.autoApprove !== undefined) configDraft.autoApprove = params.autoApprove;
+  if (params.effort?.trim()) configDraft.effort = params.effort.trim();
+  const config = Object.keys(configDraft).length > 0 ? configDraft : undefined;
 
   const [row] = await database
     .insert(conversations)

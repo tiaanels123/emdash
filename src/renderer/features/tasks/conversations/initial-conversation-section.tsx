@@ -7,6 +7,13 @@ import { AgentSelector } from '@renderer/lib/components/agent-selector/agent-sel
 import { Button } from '@renderer/lib/ui/button';
 import { Field } from '@renderer/lib/ui/field';
 import { Popover, PopoverContent, PopoverTrigger } from '@renderer/lib/ui/popover';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@renderer/lib/ui/select';
 import { Textarea } from '@renderer/lib/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import { cn } from '@renderer/utils/utils';
@@ -19,6 +26,23 @@ import { AddContextPopover } from './add-context-popover';
 import { buildIssueContextText, buildTaskContextActions } from './context-actions';
 import { useEffectiveProvider } from './use-effective-provider';
 
+// Claude Code reasoning-effort levels (injected as CLAUDE_CODE_EFFORT_LEVEL at spawn).
+// `default` means no override — Claude uses its own configured/default effort.
+const EFFORT_DEFAULT = 'default';
+const EFFORT_OPTIONS: { value: string; label: string }[] = [
+  { value: EFFORT_DEFAULT, label: 'Default' },
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+  { value: 'xhigh', label: 'Extra high' },
+  { value: 'max', label: 'Max' },
+  { value: 'ultracode', label: 'Ultracode' },
+];
+
+function effortLabel(effort: string | null): string {
+  return EFFORT_OPTIONS.find((o) => o.value === (effort ?? EFFORT_DEFAULT))?.label ?? 'Default';
+}
+
 export type InitialConversationState = {
   provider: AgentProviderId | null;
   setProvider: (provider: AgentProviderId | null) => void;
@@ -27,6 +51,8 @@ export type InitialConversationState = {
   setPrompt: Dispatch<SetStateAction<string>>;
   issueContext: string | null;
   setIssueContext: (ctx: string | null) => void;
+  effort: string | null;
+  setEffort: (effort: string | null) => void;
   connectionId?: string;
 };
 
@@ -38,6 +64,7 @@ export function useInitialConversationState(
   const { providerId, setProviderOverride } = useEffectiveProvider(connectionId, initialProvider);
   const [prompt, setPrompt] = useState('');
   const [issueContext, setIssueContext] = useState<string | null>(null);
+  const [effort, setEffort] = useState<string | null>(null);
 
   const [prevProjectId, setPrevProjectId] = useState(projectId);
   if (projectId !== prevProjectId) {
@@ -45,6 +72,7 @@ export function useInitialConversationState(
     setProviderOverride(null);
     setPrompt('');
     setIssueContext(null);
+    setEffort(null);
   }
 
   return {
@@ -55,6 +83,8 @@ export function useInitialConversationState(
     setPrompt,
     issueContext,
     setIssueContext,
+    effort,
+    setEffort,
     connectionId,
   };
 }
@@ -124,6 +154,27 @@ export function InitialConversationField({
             contentClassName="w-64"
           />
           <div className="flex items-center gap-2">
+            {state.provider === 'claude' && (
+              <Select
+                value={state.effort ?? EFFORT_DEFAULT}
+                onValueChange={(v) => state.setEffort(v === EFFORT_DEFAULT ? null : (v as string))}
+              >
+                <SelectTrigger
+                  size="sm"
+                  aria-label="Reasoning effort"
+                  className="h-6 gap-1 border-0 px-1.5 text-xs text-foreground-muted"
+                >
+                  <SelectValue>{`Effort: ${effortLabel(state.effort)}`}</SelectValue>
+                </SelectTrigger>
+                <SelectContent align="end">
+                  {EFFORT_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
             <AddContextPopover
               actions={contextActions}
               disabled={contextActions.length === 0}

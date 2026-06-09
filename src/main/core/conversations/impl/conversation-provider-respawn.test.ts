@@ -63,6 +63,7 @@ vi.mock('./keystroke-injection', () => ({
 
 vi.mock('./provider-env', () => ({
   resolveProviderEnv: vi.fn(() => ({})),
+  effortSessionArgs: vi.fn(() => []),
 }));
 
 vi.mock('@main/lib/events', () => ({

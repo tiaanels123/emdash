@@ -93,6 +93,7 @@ export async function prepareCreateTask(
     const ic = params.taskConfig.initialConversation;
     const configObj: ConversationConfig = {};
     if (ic.autoApprove !== undefined) configObj.autoApprove = ic.autoApprove;
+    if (ic.effort?.trim()) configObj.effort = ic.effort.trim();
     if (ic.initialPrompt?.trim()) configObj.initialPrompt = ic.initialPrompt.trim();
     const config = Object.keys(configObj).length > 0 ? configObj : undefined;
     convInsert = {

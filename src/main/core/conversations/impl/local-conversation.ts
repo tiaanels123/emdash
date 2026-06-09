@@ -30,7 +30,7 @@ import { buildAgentSessionCommand } from './agent-command';
 import { syncGrokThemeWithAppTheme } from './grok-theme-config';
 import { createInitialPromptDelivery } from './initial-prompt-delivery';
 import { scheduleInitialPromptInjection } from './keystroke-injection';
-import { resolveProviderEnv } from './provider-env';
+import { effortSessionArgs, resolveProviderEnv } from './provider-env';
 
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
@@ -145,6 +145,7 @@ export class LocalConversationProvider implements ConversationProvider {
         providerConfig,
         autoApprove: conversation.autoApprove,
         extraInitialArgs: initialPromptDelivery.argvAddition(),
+        extraSessionArgs: effortSessionArgs(conversation.effort),
         initialPrompt,
         sessionId: agentSession.sessionId,
         providerSessionId: conversation.providerSessionId,
@@ -153,6 +154,7 @@ export class LocalConversationProvider implements ConversationProvider {
       const providerEnv = resolveProviderEnv(providerConfig, {
         providerId: conversation.providerId,
         autoApprove: conversation.autoApprove,
+        effort: conversation.effort,
       });
       if (conversation.providerId === 'grok') {
         await syncGrokThemeWithAppTheme({ env: providerEnv });

@@ -13,6 +13,8 @@ const conversationConfigV0Schema = z.object({
   providerSessionId: z.string().optional(),
   /** Initial prompt to deliver on the first spawn; cleared from config after the session starts. */
   initialPrompt: z.string().optional(),
+  /** Claude Code reasoning effort (low|medium|high|xhigh|max); injected as CLAUDE_CODE_EFFORT_LEVEL. */
+  effort: z.string().optional(),
 });
 
 export const conversationConfig = defineVersionedSchema()
