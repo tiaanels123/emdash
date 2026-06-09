@@ -189,7 +189,7 @@ export class FrontendPty {
       this.terminal.resize(targetDims.cols, targetDims.rows);
     }
     mountTarget.appendChild(this.ownedContainer);
-    // Force a Canvas2D repaint after reparenting in the DOM.
+    // Force a repaint after reparenting in the DOM.
     const t = this.terminal;
     requestAnimationFrame(() => {
       try {

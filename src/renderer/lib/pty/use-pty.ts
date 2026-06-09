@@ -372,10 +372,15 @@ export function usePty(
       // Mount: pre-resize then appendChild (flash-free).
       frontendPty.mount(container as HTMLElement, targetDims);
 
-      // Always sync after mounting — targetDims may be stale if the pane was
-      // resized while this session was off-screen.  measureAndResize defers to
-      // rAF so it reads the live DOM and only calls term.resize() when needed.
-      measureAndResize();
+      // Measure after layout settles (next frame), NOT synchronously: right after
+      // appendChild the mount target can briefly report a transient pre-layout size
+      // (e.g. 306×333 instead of the settled 627×763), and a synchronous measure would
+      // shrink the terminal to that bogus size. Shrinking then restoring corrupts the
+      // alt-screen TUI render, while the debounced backend resize coalesces away the
+      // net change (no SIGWINCH → the agent never redraws) — producing the blank
+      // terminal after switching tabs/projects and back. A deferred measure reads the
+      // settled size and leaves the terminal at its correct dimensions.
+      requestAnimationFrame(() => measureAndResizeRef.current());
 
       // ── Load settings ──────────────────────────────────────────────────────
       let customFontFamily = '';
