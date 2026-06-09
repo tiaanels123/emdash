@@ -22,6 +22,7 @@ import type {
 import { ConversationHydrationReconciler } from './conversation-hydration-reconciler';
 import { conversationRegistry } from './conversation-registry';
 import { PrStore } from './pr-store';
+import { selectConversationToReopen } from './select-conversation-to-reopen';
 import type { TaskStore } from './task-store';
 import { terminalRegistry } from './terminal-registry';
 import { workspaceRegistry } from './workspace-registry';
@@ -395,6 +396,36 @@ export class WorkspaceViewModel implements ILifecycle {
     const panelView = kind === 'conversation' ? 'agents' : kind === 'file' ? 'editor' : 'diff';
     focusTracker.transition({ mainPanel: panelView }, 'panel_switch');
     this.tabManager.setActiveTab(tabId);
+  }
+
+  /**
+   * Reopens the most-recently-interacted conversation when the task has
+   * conversations but no tab is open in any pane.
+   *
+   * Closing a conversation tab never deletes the conversation, but once the last
+   * tab is closed there is no visible way back to it: the conversations sidebar
+   * is collapsed by default and re-selecting an already-active task is a
+   * navigation no-op. Calling this from the sidebar's "open task" handler makes
+   * re-selecting a task restore its conversation instead of stranding the user
+   * on the empty state. No-op when any pane already has a tab open, or the task
+   * has no conversations yet (its initial conversation opens via the reactions
+   * above).
+   */
+  reopenLastConversationIfEmpty(): void {
+    const anyTabOpen = this.tabGroupManager.groups.some(
+      ({ tabManager }) => tabManager.tabOrder.length > 0
+    );
+    const conversations = conversationRegistry.get(this.taskId);
+    const candidates = conversations
+      ? Array.from(conversations.conversations.values(), (store) => ({
+          id: store.data.id,
+          lastInteractedAt: store.data.lastInteractedAt,
+        }))
+      : [];
+    const conversationId = selectConversationToReopen(anyTabOpen, candidates);
+    if (conversationId) {
+      this.tabGroupManager.openConversation(conversationId);
+    }
   }
 
   setSidebarTab(v: SidebarTab): void {

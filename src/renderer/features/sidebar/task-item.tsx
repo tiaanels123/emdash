@@ -61,6 +61,11 @@ export const SidebarTaskItem = observer(function SidebarTaskItem({
   const openTask = () => {
     handleProvision();
     navigate('task', { projectId, taskId });
+    // Re-selecting a task whose tabs were all closed is otherwise a no-op (the
+    // navigation short-circuits and the empty state has no way back to the
+    // existing conversation). Reopen the last conversation so clicking the task
+    // brings it back.
+    task.viewModel?.reopenLastConversationIfEmpty();
   };
 
   const handleArchive = () => {
