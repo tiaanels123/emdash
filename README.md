@@ -33,6 +33,7 @@ already use: Claude Code, Codex, OpenCode, Gemini, Amp, and more.
 - Keep every agent isolated in its own Git worktree and branch.
 - Send issues and tickets from Linear, GitHub, Jira, GitLab, Asana, Featurebase,
   Monday.com, Forgejo, Trello, Azure DevOps, or Plain into an agent.
+- Tune Claude Code's reasoning effort per task (low → max, or ultracode).
 - Review diffs, create pull requests, inspect CI checks, and merge from one place.
 - Work locally or on your own remote machines over SSH/SFTP.
 
