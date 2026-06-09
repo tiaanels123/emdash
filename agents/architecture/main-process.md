@@ -9,6 +9,7 @@ The main process is organized into domain modules under `src/main/core/`. Each d
 - **account** — Emdash account service, credential store, provider token registry
 - **agent-hooks** — HTTP hook server for agent callbacks, event enrichment, OS notifications, hook config writer (Claude/Codex)
 - **app** — App lifecycle service and controller
+- **azure-devops** — Azure DevOps (Azure Boards) issues: PAT auth, WIQL listing of assigned work items
 - **conversations** — Conversation CRUD, session start, agent event classifiers (per-provider terminal output parsers)
 - **dependencies** — CLI agent detection, probing, dependency management
 - **editor** — Editor buffer service for Monaco integration
