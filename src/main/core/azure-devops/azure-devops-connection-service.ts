@@ -146,7 +146,8 @@ export class AzureDevOpsConnectionService {
 
   private async verify(organization: string, pat: string): Promise<string | undefined> {
     const base = resolveAzureDevOpsBaseUrl(organization);
-    const url = new URL(`${base}/_apis/connectionData?api-version=7.1`);
+    // connectionData is a preview resource — plain "7.1" is rejected with HTTP 400.
+    const url = new URL(`${base}/_apis/connectionData?api-version=7.1-preview`);
     const body = await doAdoGet(url, pat);
     const data = JSON.parse(body || '{}') as ConnectionData;
     // A valid PAT returns an authenticated user; an invalid one yields a sign-in page
