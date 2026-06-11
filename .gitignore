@@ -4,6 +4,9 @@ dist/
 out/
 /release/
 
+# graphify knowledge graph output
+graphify-out*/
+
 # Logs
 *.log
 npm-debug.log*
