@@ -85,6 +85,77 @@ session.
 - **D — Gate**: format (changed files only), lint, typecheck, test, test:migrations; graphify
   update.
 
+## Implementation status
+
+### Done (this branch)
+
+1. **Schema/migration (0018)** — `tasks.organization_id` (NOT NULL default Personal, no FK,
+   0016 recipe) + `task_projects (task_id, project_id, workspace_id, sort_order)` with PK
+   `(task_id, project_id)`; indexes on `tasks.organization_id` and `task_projects.project_id`.
+   - `src/main/db/task-org-migration.ts` — kv-gated (`task_organization_migration_version`)
+     `ensureTaskOrganizations`: derives each task's org from its primary project, seeds the
+     primary attachment row per task; ungated `backfillTaskOrganizations` shared with beta
+     import. Wired into `initialize.ts` after `ensureDefaultOrganization`.
+   - Fixtures: committed `pre-0018.db` snapshot; baseline seed inserts attachment rows;
+     migration tests `0018_task_projects.test.ts` + `task-org-migration.test.ts` (29/29 green).
+   - Legacy-port: relational importer writes attachment rows; `destination-cleanup.ts`
+     deletes-by-primary / detaches-secondary; `beta-import.ts` copies `task_projects` and
+     backfills imports from pre-0018 beta DBs.
+
+2. **Shared types** — `Task.organizationId`, `Task.repos: TaskRepo[]` (primary first),
+   `CreateTaskParams.additionalRepos`, `ProvisionTaskResult.repos`, new `CreateTaskError`
+   variants `cross-org-repos` / `multi-repo-requires-local`,
+   `AgentProviderDefinition.addDirFlag` (set to `--add-dir` for claude).
+
+3. **Main process**
+   - `createTask`: validates same-org + local-only for additional repos, inserts N workspace
+     rows + N attachment rows in one transaction (primary mirrors the legacy task columns).
+   - `WorkspaceBootstrapService`: path resolution extracted to `_resolveWorkspacePath`;
+     `ensureAdditionalWorkspaceSetup` provisions+acquires a secondary repo WITHOUT building
+     task providers; `ensureWorkspaceSetupForTask` provisions secondaries FIRST, updates
+     attachment rows on path-key dedupe, then provisions the primary with
+     `extraWorktreePaths`; releases acquired secondaries on any failure.
+   - `taskSessionManager`: persistData stores additional workspaces; teardown releases all;
+     `task:provisioned`/`task:torn-down` hooks fire once per attachment (git watchers, PR
+     sync, telemetry see every repo).
+   - `LocalConversationProvider`: trusts every worktree, writes hook config into every
+     worktree, appends `--add-dir <path>` per extra worktree via extraSessionArgs (applies to
+     fresh AND resume spawns); `EMDASH_REPO_PATHS` env lists all roots.
+   - `deleteTask`/`archiveTask`: iterate all attachments; sibling checks
+     (`task-lifecycle-utils`) consider both `tasks.workspaceId` and `task_projects`.
+   - `deleteProject`: detaches the project from all task attachments.
+
+4. **Renderer** — create-task modal "Additional repositories" section (other local repos of
+   the primary's org; worktree mode reuses the task branch name from each repo's default
+   branch, no-worktree mode attaches at repository root); task titlebar "+N" badge listing
+   additional repos; `getTasks` returns `repos` per task.
+
+### Remaining work (follow-ups, in rough priority order)
+
+1. **Per-repo diff/editor UI** — the task view still binds to the primary workspace only
+   (`useWorkspace()`/`useWorkspaceId()` in `task-view-context.tsx` is the single funnel; ~30
+   consumers). Needs an active-repo selector or per-repo diff sections; `PrStore`/
+   `DiffViewStore`/`FileModelLifecycleStore` instances per attachment.
+2. **Org-level task list in the sidebar** — tasks still render nested under their primary
+   project. A flat "Tasks" section for the active org (pinned-strip pattern) or a full
+   sidebar IA inversion; also `taskOrderByProject` snapshot re-keying.
+3. **PR aggregation per repo** — `getPullRequestsForTask` reads the primary workspace/branch
+   only; multi-repo tasks should aggregate PRs across attachments (the per-attachment
+   `task:provisioned` hook already feeds PR sync, so cached PRs exist).
+4. **Per-repo terminals** — terminals spawn in the primary worktree; could take a target-repo
+   cwd choice. Same for lifecycle-script status UI (N setup scripts run, one surface).
+5. **SSH multi-repo** — same-host SSH repos could work (cd + --add-dir on the remote);
+   cross-host needs a session-per-repo model. BYOI multi-repo unscoped.
+6. **Automations** — still single-project; could mirror `additionalRepos` in task templates.
+7. **Search/FTS** — task rows index the primary branch keywords only; could aggregate
+   branches across attachments (needs `SEARCH_INDEX_VERSION` bump).
+8. **Delete preflight per repo** — `getDeletePreflight` reports the primary repo's
+   uncommitted changes/branch only; deletion itself already cleans all repos.
+9. **Telemetry** — add `organization_id` (and `workspace_id`) to the sanitizer allowlist in
+   `src/main/lib/telemetry.ts` if per-org dashboards are wanted.
+10. **Org switch navigation guard** — switching the active org keeps a foreign org's task
+    open (pre-existing behavior, more visible now that tasks are org-owned).
+
 ## Verified constraints from the audit
 
 - `PRAGMA foreign_keys` never enabled → declared cascades are inert; never rely on them.
