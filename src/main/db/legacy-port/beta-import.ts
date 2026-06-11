@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { backfillTaskOrganizations } from '@main/db/task-org-migration';
 import { clearDestinationDataPreservingSignIn } from './reset';
 import {
   columnsForTable,
@@ -19,6 +20,7 @@ const COPY_TABLE_ORDER = [
   'projects',
   'project_remotes',
   'tasks',
+  'task_projects',
   'conversations',
   'terminals',
   'messages',
@@ -46,6 +48,11 @@ function copyAttachedBetaTables(sqlite: Database.Database): void {
   clearDestinationDataPreservingSignIn(sqlite);
   for (const tableName of COPY_TABLE_ORDER) {
     copyTable(sqlite, tableName);
+  }
+  // Beta databases older than migration 0018 have no task_projects table (and
+  // no tasks.organization_id values); derive both for the imported rows.
+  if (tableExists(sqlite, 'task_projects')) {
+    backfillTaskOrganizations(sqlite);
   }
 }
 

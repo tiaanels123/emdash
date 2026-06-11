@@ -1,6 +1,13 @@
 import { toStoredBranch } from '@main/core/tasks/stored-branch';
 import type { AppDb } from '@main/db/client';
-import { conversations, projectRemotes, projects, projectSettings, tasks } from '@main/db/schema';
+import {
+  conversations,
+  projectRemotes,
+  projects,
+  projectSettings,
+  taskProjects,
+  tasks,
+} from '@main/db/schema';
 import type { Branch } from '@shared/core/git/git';
 
 const mainBranch: Branch = { type: 'local', branch: 'main' };
@@ -94,6 +101,30 @@ export async function baseline(db: AppDb): Promise<void> {
       taskBranch: 'feat/rate-limiting',
       sourceBranch: toStoredBranch(mainBranch),
     },
+  ]);
+
+  // Primary attachment rows mirroring tasks.project_id / tasks.workspace_id —
+  // the same shape the ensureTaskOrganizations backfill produces for real DBs.
+  await db.insert(taskProjects).values([
+    {
+      taskId: TASK_A1_ID,
+      projectId: PROJECT_A_ID,
+      workspaceId: `local:${PROJECT_A_ID}:branch:feat/workspace-db`,
+      sortOrder: 0,
+    },
+    {
+      taskId: TASK_A2_ID,
+      projectId: PROJECT_A_ID,
+      workspaceId: `local:${PROJECT_A_ID}:branch:feat/migration-testing`,
+      sortOrder: 0,
+    },
+    {
+      taskId: TASK_A3_ID,
+      projectId: PROJECT_A_ID,
+      workspaceId: `local:${PROJECT_A_ID}:branch:fix/ssh-timeout`,
+      sortOrder: 0,
+    },
+    { taskId: TASK_B1_ID, projectId: PROJECT_B_ID, workspaceId: null, sortOrder: 0 },
   ]);
 
   await db.insert(conversations).values([

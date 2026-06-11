@@ -127,6 +127,13 @@
       "when": 1780901876239,
       "tag": "0017_zippy_spyke",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1781205924524,
+      "tag": "0018_strange_hex",
+      "breakpoints": true
     }
   ]
 }
