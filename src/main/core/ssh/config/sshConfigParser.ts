@@ -83,7 +83,12 @@ async function resolveIncludePaths(value: string, configDir: string): Promise<st
       const absolutePattern = isAbsolute(expandedPattern)
         ? expandedPattern
         : resolve(configDir, expandedPattern);
-      return await glob(absolutePattern, { nodir: true });
+      // On Windows, resolve() produces backslash separators which glob would
+      // otherwise treat as escape characters, so Include patterns never match.
+      return await glob(absolutePattern, {
+        nodir: true,
+        windowsPathsNoEscape: process.platform === 'win32',
+      });
     })
   );
 

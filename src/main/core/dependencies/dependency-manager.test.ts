@@ -25,6 +25,9 @@ vi.mock('../ssh/lifecycle/production-ssh-connection-manager', () => ({
   },
 }));
 
+// Mirrors the platform-dependent resolver command in `./probe.ts`.
+const RESOLVE_CMD = process.platform === 'win32' ? 'where' : 'which';
+
 function makeCtx(
   handler: (command: string, args: string[]) => Promise<{ stdout: string; stderr: string }>,
   options: {
@@ -48,7 +51,7 @@ const missingCtx = makeCtx(async () => {
 });
 
 const availableCtx = makeCtx(async (command, args = []) => {
-  if (command === 'which' && args[0] === 'codex') {
+  if (command === RESOLVE_CMD && args[0] === 'codex') {
     return { stdout: '/bin/codex\n', stderr: '' };
   }
   if (command === '/bin/codex' && args[0] === '--version') {
@@ -167,7 +170,7 @@ describe('DependencyManager install', () => {
     let shellEnvRefreshed = false;
     const ctx = makeCtx(
       async (command, args = []) => {
-        if (command === 'which' && args[0] === 'codex' && shellEnvRefreshed) {
+        if (command === RESOLVE_CMD && args[0] === 'codex' && shellEnvRefreshed) {
           return { stdout: '/home/user/.local/bin/codex\n', stderr: '' };
         }
         if (command === '/home/user/.local/bin/codex' && args[0] === '--version') {
@@ -195,7 +198,7 @@ describe('DependencyManager install', () => {
   it('refreshes shell env once before a user-triggered category probe', async () => {
     const ctx = makeCtx(
       async (command, args = []) => {
-        if (command === 'which' && args[0] === 'codex') {
+        if (command === RESOLVE_CMD && args[0] === 'codex') {
           return { stdout: '/bin/codex\n', stderr: '' };
         }
         if (command === '/bin/codex' && args[0] === '--version') {
@@ -248,7 +251,7 @@ describe('DependencyManager install', () => {
 
   it('skips version probes for dependencies configured as path-only', async () => {
     const ctx = makeCtx(async (command, args = []) => {
-      if (command === 'which' && args[0] === 'letta') {
+      if (command === RESOLVE_CMD && args[0] === 'letta') {
         return { stdout: '/bin/letta\n', stderr: '' };
       }
       if (command === '/bin/letta') {
@@ -269,7 +272,7 @@ describe('DependencyManager install', () => {
       })
     );
     expect(ctx.exec).toHaveBeenCalledTimes(1);
-    expect(ctx.exec).toHaveBeenCalledWith('which', ['letta'], { timeout: 5000 });
+    expect(ctx.exec).toHaveBeenCalledWith(RESOLVE_CMD, ['letta'], { timeout: 5000 });
   });
 
   it('emits dependency updates with the SSH connection id', async () => {

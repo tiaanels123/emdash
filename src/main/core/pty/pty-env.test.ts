@@ -10,6 +10,23 @@ function setPlatform(platform: NodeJS.Platform): void {
   });
 }
 
+/**
+ * Replaces process.env with a plain object copy so key casing is exact.
+ * On Windows the real process.env is case-insensitive, so assignments like
+ * `process.env.ComSpec = ...` silently update an existing `COMSPEC` key and
+ * `Object.entries(process.env)` never yields the casing the test expects.
+ */
+function setProcessEnv(overrides: Record<string, string | undefined>): void {
+  const env: NodeJS.ProcessEnv = { ...originalEnv };
+  for (const [key, value] of Object.entries(overrides)) {
+    for (const existing of Object.keys(env)) {
+      if (existing.toLowerCase() === key.toLowerCase()) delete env[existing];
+    }
+    if (value !== undefined) env[key] = value;
+  }
+  process.env = env;
+}
+
 async function loadPtyEnv() {
   vi.resetModules();
   return import('./pty-env');
@@ -26,8 +43,7 @@ afterEach(() => {
 describe('pty env Windows shell handling', () => {
   it('does not synthesize /bin/bash as SHELL for Windows terminals', async () => {
     setPlatform('win32');
-    delete process.env.SHELL;
-    process.env.ComSpec = 'C:\\Windows\\System32\\cmd.exe';
+    setProcessEnv({ SHELL: undefined, ComSpec: 'C:\\Windows\\System32\\cmd.exe' });
 
     const { buildTerminalEnv } = await loadPtyEnv();
     const env = buildTerminalEnv();
@@ -38,8 +54,7 @@ describe('pty env Windows shell handling', () => {
 
   it('does not synthesize /bin/bash when includeShellVar is true on Windows', async () => {
     setPlatform('win32');
-    delete process.env.SHELL;
-    process.env.ComSpec = 'C:\\Windows\\System32\\cmd.exe';
+    setProcessEnv({ SHELL: undefined, ComSpec: 'C:\\Windows\\System32\\cmd.exe' });
 
     const { buildAgentEnv } = await loadPtyEnv();
     const env = buildAgentEnv({ includeShellVar: true, agentApiVars: false });

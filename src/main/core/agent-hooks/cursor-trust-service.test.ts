@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { IExecutionContext } from '@main/core/execution-context/types';
 import {
@@ -32,6 +33,24 @@ vi.mock('@main/lib/logger', () => ({
     debug: vi.fn(),
   },
 }));
+
+// Local marker paths use the host platform's path semantics. On Windows,
+// path.resolve() prefixes the current drive (e.g. 'C:\'), which the Cursor CLI
+// slug derivation turns into a leading '<drive>-' segment; the rest of the
+// expected slug stays a literal pin of the segment-joined workspace path.
+function expectedSlug(cwd: string, posixSlug: string): string {
+  return process.platform === 'win32' ? `${path.resolve(cwd)[0]}-${posixSlug}` : posixSlug;
+}
+
+function expectedMarkerPath(homedir: string, cwd: string, posixSlug: string): string {
+  return path.join(
+    homedir,
+    '.cursor',
+    'projects',
+    expectedSlug(cwd, posixSlug),
+    '.workspace-trusted'
+  );
+}
 
 function nodeNotFound() {
   return Object.assign(new Error('not found'), { code: 'ENOENT' });
@@ -121,7 +140,7 @@ describe('CursorTrustService', () => {
     });
 
     expect(mockAccess).toHaveBeenCalledWith(
-      '/home/local-user/.cursor/projects/tmp-worktree/.workspace-trusted'
+      expectedMarkerPath('/home/local-user', '/tmp/worktree', 'tmp-worktree')
     );
     expect(mockWriteFile).toHaveBeenCalledTimes(1);
   });
@@ -135,9 +154,9 @@ describe('CursorTrustService', () => {
       homedir: '/home/local-user',
     });
 
-    const markerPath = '/home/local-user/.cursor/projects/tmp-worktree/.workspace-trusted';
+    const markerPath = expectedMarkerPath('/home/local-user', '/tmp/worktree', 'tmp-worktree');
     expect(mockAccess).toHaveBeenCalledWith(markerPath);
-    expect(mockMkdir).toHaveBeenCalledWith('/home/local-user/.cursor/projects/tmp-worktree', {
+    expect(mockMkdir).toHaveBeenCalledWith(path.dirname(markerPath), {
       recursive: true,
     });
     expect(mockWriteFile).toHaveBeenCalledWith(markerPath, expect.any(String), 'utf8');
@@ -145,7 +164,7 @@ describe('CursorTrustService', () => {
     const marker = JSON.parse(String(mockWriteFile.mock.calls[0][1]));
     expect(marker).toEqual({
       trustedAt: expect.any(String),
-      workspacePath: '/tmp/worktree',
+      workspacePath: path.resolve('/tmp/worktree'),
       trustMethod: 'emdash-auto-trust',
     });
   });
@@ -174,7 +193,11 @@ describe('CursorTrustService', () => {
     });
 
     expect(mockWriteFile).toHaveBeenCalledWith(
-      '/Users/janburzinski/.cursor/projects/Users-janburzinski-emdash-worktrees-emdash-official-tough-falcons-notice/.workspace-trusted',
+      expectedMarkerPath(
+        '/Users/janburzinski',
+        '/Users/janburzinski/emdash/worktrees/emdash-official/tough-falcons-notice',
+        'Users-janburzinski-emdash-worktrees-emdash-official-tough-falcons-notice'
+      ),
       expect.any(String),
       'utf8'
     );

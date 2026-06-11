@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm';
+import { detachProjectAutomations } from '@main/core/automations/repo';
 import { projectEvents } from '@main/core/projects/project-events';
 import { projectManager } from '@main/core/projects/project-manager';
 import { prSyncEngine } from '@main/core/pull-requests/pr-sync-engine';
@@ -21,6 +22,10 @@ export async function deleteProject(id: string): Promise<void> {
   }
 
   await prSyncEngine.deleteProjectData(id);
+  // Orphan this project's automations (FKs are unenforced at runtime) so the
+  // scheduler skips their queued runs and stops scheduling new cron runs
+  // instead of executing against a deleted project.
+  await detachProjectAutomations(id);
   // Detach this project from every task attachment (FKs are unenforced at
   // runtime) — multi-repo tasks that attached it as a secondary repo keep
   // working against their remaining repos.

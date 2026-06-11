@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -55,57 +55,61 @@ describe('resolveSshConfig', () => {
   });
 
   it('executes ssh -G for the selected alias and throws stderr on failure', async () => {
+    // The fake ssh is a Node script run through process.execPath so the real
+    // execFile code path is exercised on every platform, including Windows.
     const dir = await mkdtemp(join(tmpdir(), 'emdash-ssh-g-'));
-    const sshPath = join(dir, 'ssh');
+    const sshScript = join(dir, 'fake-ssh.cjs');
     await writeFile(
-      sshPath,
-      `#!/bin/sh
-if [ "$1" = "-G" ] && [ "$2" = "corp-dev" ]; then
-  printf '%s\\n' 'hostname dev.internal' 'user alice' 'port 22'
-  exit 0
-fi
-printf '%s\\n' 'missing alias' >&2
-exit 255
+      sshScript,
+      `
+const [flag, alias] = process.argv.slice(2);
+if (flag === '-G' && alias === 'corp-dev') {
+  process.stdout.write('hostname dev.internal\\nuser alice\\nport 22\\n');
+  process.exit(0);
+}
+process.stderr.write('missing alias\\n');
+process.exit(255);
 `
     );
-    await chmod(sshPath, 0o755);
+    const runner = createExecFileSshConfigRunner({
+      sshPath: process.execPath,
+      extraArgs: [sshScript],
+    });
 
-    await expect(resolveSshConfig('corp-dev', { sshPath })).resolves.toMatchObject({
+    await expect(resolveSshConfig('corp-dev', { runner })).resolves.toMatchObject({
       hostname: 'dev.internal',
       user: 'alice',
       port: 22,
     });
-    await expect(resolveSshConfig('unknown', { sshPath })).rejects.toThrow('missing alias');
+    await expect(resolveSshConfig('unknown', { runner })).rejects.toThrow('missing alias');
   });
 
   it('times out ssh -G so Match exec cannot hang callers indefinitely', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'emdash-ssh-g-timeout-'));
-    const sshPath = join(dir, 'ssh');
-    await writeFile(
-      sshPath,
-      `#!/bin/sh
-sleep 2
-`
-    );
-    await chmod(sshPath, 0o755);
+    const sshScript = join(dir, 'fake-ssh.cjs');
+    await writeFile(sshScript, 'setTimeout(() => {}, 2000);\n');
+    const runner = createExecFileSshConfigRunner({
+      sshPath: process.execPath,
+      extraArgs: [sshScript],
+      timeoutMs: 50,
+    });
 
-    await expect(resolveSshConfig('corp-dev', { sshPath, timeoutMs: 50 })).rejects.toThrow(
+    await expect(resolveSshConfig('corp-dev', { runner })).rejects.toThrow(
       'ssh -G timed out after 50ms'
     );
   });
 
   it('bounds ssh -G output with maxBuffer', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'emdash-ssh-g-max-buffer-'));
-    const sshPath = join(dir, 'ssh');
-    await writeFile(
-      sshPath,
-      `#!/bin/sh
-printf '%0600d\\n' 0
-`
-    );
-    await chmod(sshPath, 0o755);
+    const sshScript = join(dir, 'fake-ssh.cjs');
+    await writeFile(sshScript, "process.stdout.write('0'.repeat(600) + '\\n');\n");
+    const runner = createExecFileSshConfigRunner({
+      sshPath: process.execPath,
+      extraArgs: [sshScript],
+      maxBuffer: 128,
+    });
 
-    await expect(resolveSshConfig('corp-dev', { sshPath, maxBuffer: 128 })).rejects.toThrow(
+    await expect(resolveSshConfig('corp-dev', { runner })).rejects.toThrow(
       /maxBuffer|stdout maxBuffer length exceeded/
     );
   });

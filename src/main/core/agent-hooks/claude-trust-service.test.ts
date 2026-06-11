@@ -38,6 +38,13 @@ vi.mock('@main/lib/logger', () => ({
   },
 }));
 
+// Local trust configs are written with the host platform's path semantics, so
+// expected paths are derived from the same fixture inputs via node:path
+// (on Windows, '/home/local-user' joins/resolves with backslashes and a drive letter).
+const LOCAL_HOME = '/home/local-user';
+const CLAUDE_CONFIG_PATH = path.join(LOCAL_HOME, '.claude.json');
+const COPILOT_CONFIG_PATH = path.join(LOCAL_HOME, '.copilot', 'config.json');
+
 function notFound(pathName: string): FileSystemError {
   return new FileSystemError(
     `File not found: ${pathName}`,
@@ -110,7 +117,7 @@ describe('ClaudeTrustService', () => {
       force: true,
     });
 
-    expect(mockReadFile).toHaveBeenCalledWith('/home/local-user/.claude.json', 'utf8');
+    expect(mockReadFile).toHaveBeenCalledWith(CLAUDE_CONFIG_PATH, 'utf8');
     expect(mockWriteFile).toHaveBeenCalledTimes(1);
   });
 
@@ -125,15 +132,15 @@ describe('ClaudeTrustService', () => {
     });
 
     expect(mockWriteFile).toHaveBeenCalledTimes(1);
-    expect(mockMkdir).toHaveBeenCalledWith('/home/local-user', { recursive: true });
+    expect(mockMkdir).toHaveBeenCalledWith(path.dirname(CLAUDE_CONFIG_PATH), { recursive: true });
     expect(mockRename).toHaveBeenCalledTimes(1);
 
     const [tmpPath, content] = mockWriteFile.mock.calls[0];
     const [renameFrom, renameTo] = mockRename.mock.calls[0];
-    expect(tmpPath).toContain('/home/local-user/.claude.json.');
+    expect(tmpPath).toContain(`${CLAUDE_CONFIG_PATH}.`);
     expect(tmpPath).toContain('.tmp');
     expect(renameFrom).toBe(tmpPath);
-    expect(renameTo).toBe('/home/local-user/.claude.json');
+    expect(renameTo).toBe(CLAUDE_CONFIG_PATH);
 
     const written = JSON.parse(String(content));
     expect(written.projects[path.resolve(relPath)]).toEqual({
@@ -152,21 +159,24 @@ describe('ClaudeTrustService', () => {
       homedir: '/home/local-user',
     });
 
-    expect(mockMkdir).toHaveBeenCalledWith('/home/local-user/.copilot', { recursive: true });
+    expect(mockMkdir).toHaveBeenCalledWith(path.dirname(COPILOT_CONFIG_PATH), { recursive: true });
     const [tmpPath, content] = mockWriteFile.mock.calls[0];
     const [renameFrom, renameTo] = mockRename.mock.calls[0];
-    expect(tmpPath).toContain('/home/local-user/.copilot/config.json.');
+    expect(tmpPath).toContain(`${COPILOT_CONFIG_PATH}.`);
     expect(renameFrom).toBe(tmpPath);
-    expect(renameTo).toBe('/home/local-user/.copilot/config.json');
+    expect(renameTo).toBe(COPILOT_CONFIG_PATH);
     expect(JSON.parse(String(content)).trustedFolders).toEqual([
       '/already/trusted',
-      '/tmp/worktree',
+      path.resolve('/tmp/worktree'),
     ]);
   });
 
   it('does not rewrite Copilot config when folder is already trusted', async () => {
     const service = makeService();
-    mockReadFile.mockResolvedValue(JSON.stringify({ trustedFolders: ['/tmp/worktree'] }));
+    // The service trusts the resolved cwd, so the already-trusted entry must match it.
+    mockReadFile.mockResolvedValue(
+      JSON.stringify({ trustedFolders: [path.resolve('/tmp/worktree')] })
+    );
 
     await service.maybeAutoTrustLocal({
       providerId: 'copilot',
@@ -180,7 +190,8 @@ describe('ClaudeTrustService', () => {
 
   it('is idempotent when already trusted', async () => {
     const service = makeService();
-    const trustedPath = '/already/trusted';
+    // The service trusts the resolved cwd, so the already-trusted entry must match it.
+    const trustedPath = path.resolve('/already/trusted');
     mockReadFile.mockResolvedValue(
       JSON.stringify({
         projects: {

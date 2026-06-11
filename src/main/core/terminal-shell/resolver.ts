@@ -63,7 +63,7 @@ function pathDirs(env: NodeJS.ProcessEnv, platform: NodeJS.Platform): string[] {
   const rawPath =
     platform === 'win32' ? (env.Path ?? env.PATH ?? env.path ?? '') : (env.PATH ?? '');
   return rawPath
-    .split(platform === 'win32' ? path.win32.delimiter : path.delimiter)
+    .split(platform === 'win32' ? path.win32.delimiter : path.posix.delimiter)
     .filter(Boolean);
 }
 
@@ -82,7 +82,9 @@ function findOnPath(
   platform: NodeJS.Platform,
   fileExists: FileExists = isExecutable
 ): string | undefined {
-  const pathApi = platform === 'win32' ? path.win32 : path;
+  // Pin the path API to the *target* platform (not the host) so PATH lookups
+  // for an injected posix platform behave the same on a Windows host.
+  const pathApi = platform === 'win32' ? path.win32 : path.posix;
   if (pathApi.isAbsolute(shell) && fileExists(shell)) return shell;
 
   for (const dir of pathDirs(env, platform)) {
