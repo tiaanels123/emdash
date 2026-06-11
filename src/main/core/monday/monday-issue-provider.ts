@@ -11,6 +11,7 @@ import {
   type IssueContextResult,
   type IssueListResult,
 } from '@shared/issue-providers';
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import { mondayConnectionService } from './monday-connection-service';
 
 type MondayColumnValue = {
@@ -108,8 +109,8 @@ function sortByUpdatedAtDesc(issues: LinkedIssue[]): LinkedIssue[] {
   );
 }
 
-async function listIssues(limit: number): Promise<IssueListResult> {
-  const credentials = await mondayConnectionService.getStoredCredentials();
+async function listIssues(organizationId: string, limit: number): Promise<IssueListResult> {
+  const credentials = await mondayConnectionService.getStoredCredentials(organizationId);
   if (!credentials) {
     return { success: false, error: 'Monday.com is not connected.' };
   }
@@ -150,13 +151,17 @@ async function listIssues(limit: number): Promise<IssueListResult> {
   }
 }
 
-async function searchIssues(searchTerm: string, limit: number): Promise<IssueListResult> {
+async function searchIssues(
+  organizationId: string,
+  searchTerm: string,
+  limit: number
+): Promise<IssueListResult> {
   const term = normalizeSearchTerm(searchTerm);
   if (!term) {
     return { success: true, issues: [] };
   }
 
-  const credentials = await mondayConnectionService.getStoredCredentials();
+  const credentials = await mondayConnectionService.getStoredCredentials(organizationId);
   if (!credentials) {
     return { success: false, error: 'Monday.com is not connected.' };
   }
@@ -233,7 +238,8 @@ async function fetchDocDescription(
 }
 
 async function getIssueContext(opts: IssueContextOpts): Promise<IssueContextResult> {
-  const credentials = await mondayConnectionService.getStoredCredentials();
+  const organizationId = opts.organizationId ?? PERSONAL_ORGANIZATION_ID;
+  const credentials = await mondayConnectionService.getStoredCredentials(organizationId);
   if (!credentials) {
     return { success: false, error: 'Monday.com is not connected.' };
   }
@@ -277,8 +283,14 @@ async function getIssueContext(opts: IssueContextOpts): Promise<IssueContextResu
 export const mondayIssueProvider: IssueProvider = {
   type: 'monday',
   capabilities: ISSUE_PROVIDER_CAPABILITIES.monday,
-  checkConnection: () => mondayConnectionService.checkConnection(),
-  listIssues: async (opts: IssueQueryOpts) => listIssues(opts.limit ?? 50),
-  searchIssues: async (opts: IssueSearchOpts) => searchIssues(opts.searchTerm, opts.limit ?? 20),
+  checkConnection: (organizationId) => mondayConnectionService.checkConnection(organizationId),
+  listIssues: async (opts: IssueQueryOpts) =>
+    listIssues(opts.organizationId ?? PERSONAL_ORGANIZATION_ID, opts.limit ?? 50),
+  searchIssues: async (opts: IssueSearchOpts) =>
+    searchIssues(
+      opts.organizationId ?? PERSONAL_ORGANIZATION_ID,
+      opts.searchTerm,
+      opts.limit ?? 20
+    ),
   getIssueContext,
 };

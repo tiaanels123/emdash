@@ -12,6 +12,7 @@ import {
   type IssueContextResult,
   type IssueListResult,
 } from '@shared/issue-providers';
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import { trelloConnectionService, type TrelloAuth } from './trello-connection-service';
 
 type TrelloCard = {
@@ -121,8 +122,8 @@ async function resolveBoards(
   return boards.filter((board) => !board.closed).slice(0, DEFAULT_BOARD_LIMIT);
 }
 
-async function listIssues(limit: number): Promise<IssueListResult> {
-  const credentials = await trelloConnectionService.getStoredCredentials();
+async function listIssues(organizationId: string, limit: number): Promise<IssueListResult> {
+  const credentials = await trelloConnectionService.getStoredCredentials(organizationId);
   if (!credentials) {
     return { success: false, error: 'Trello is not connected.' };
   }
@@ -154,13 +155,17 @@ async function listIssues(limit: number): Promise<IssueListResult> {
   }
 }
 
-async function searchIssues(searchTerm: string, limit: number): Promise<IssueListResult> {
+async function searchIssues(
+  organizationId: string,
+  searchTerm: string,
+  limit: number
+): Promise<IssueListResult> {
   const term = normalizeSearchTerm(searchTerm);
   if (!term) {
     return { success: true, issues: [] };
   }
 
-  const credentials = await trelloConnectionService.getStoredCredentials();
+  const credentials = await trelloConnectionService.getStoredCredentials(organizationId);
   if (!credentials) {
     return { success: false, error: 'Trello is not connected.' };
   }
@@ -195,8 +200,11 @@ async function searchIssues(searchTerm: string, limit: number): Promise<IssueLis
   }
 }
 
-async function getIssueContext(opts: IssueContextOpts): Promise<IssueContextResult> {
-  const credentials = await trelloConnectionService.getStoredCredentials();
+async function getIssueContext(
+  organizationId: string,
+  opts: IssueContextOpts
+): Promise<IssueContextResult> {
+  const credentials = await trelloConnectionService.getStoredCredentials(organizationId);
   if (!credentials) {
     return { success: false, error: 'Trello is not connected.' };
   }
@@ -228,8 +236,15 @@ async function getIssueContext(opts: IssueContextOpts): Promise<IssueContextResu
 export const trelloIssueProvider: IssueProvider = {
   type: 'trello',
   capabilities: ISSUE_PROVIDER_CAPABILITIES.trello,
-  checkConnection: () => trelloConnectionService.checkConnection(),
-  listIssues: async (opts: IssueQueryOpts) => listIssues(opts.limit ?? 50),
-  searchIssues: async (opts: IssueSearchOpts) => searchIssues(opts.searchTerm, opts.limit ?? 20),
-  getIssueContext,
+  checkConnection: (organizationId) => trelloConnectionService.checkConnection(organizationId),
+  listIssues: async (opts: IssueQueryOpts) =>
+    listIssues(opts.organizationId ?? PERSONAL_ORGANIZATION_ID, opts.limit ?? 50),
+  searchIssues: async (opts: IssueSearchOpts) =>
+    searchIssues(
+      opts.organizationId ?? PERSONAL_ORGANIZATION_ID,
+      opts.searchTerm,
+      opts.limit ?? 20
+    ),
+  getIssueContext: async (opts: IssueContextOpts) =>
+    getIssueContext(opts.organizationId ?? PERSONAL_ORGANIZATION_ID, opts),
 };

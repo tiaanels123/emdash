@@ -17,6 +17,7 @@ const v0Schema = z.object({
     'asana',
     'monday',
     'trello',
+    'azuredevops',
   ]),
   url: z.string(),
   title: z.string(),

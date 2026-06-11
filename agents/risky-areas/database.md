@@ -83,7 +83,7 @@ installed under `tooling/node-deps/` (compiled for system Node). The root
    pnpm run db:generate
    ```
 
-4. **Write a migration test** in `src/main/db/__tests__/migrations/` using `openFixture('pre-XXXX')`.
+4. **Write a migration test** in `src/main/db/tests/migrations/` using `openFixture('pre-XXXX')`.
    See `example.test.ts` in that directory for the pattern.
 
 5. **Regenerate fixtures** so `baseline.db` and `empty.db` include the new schema:
@@ -167,6 +167,6 @@ columns remain `text()` — call `schema.parseJson(row.col)` explicitly on read 
   temp file, applies any pending migrations (via our own `initializeDatabase()`),
   returns a `DrizzleClient`. Each call is fully isolated; `close()` deletes the temp file.
   Import via `@tooling/utils/db` (alias available in all Vitest projects).
-- Migration tests live in `src/main/db/__tests__/migrations/` and run via
+- Migration tests live in `src/main/db/tests/migrations/` and run via
   `pnpm run test:migrations` (separate from the main test suite because they
   use `import.meta.glob`, which requires Vite's transform pipeline).

@@ -10,21 +10,36 @@ type ProjectSettingsForBackfill = {
   patch(patch: { githubAccountId?: string | null }): Promise<Result<void, unknown>>;
 };
 
+type ProjectRemote = { name: string; url: string };
+
 type ProjectForGitHubAccountBackfill = {
   projectId: string;
   settings: ProjectSettingsForBackfill;
-  getRemoteState(): Promise<{
-    hasRemote: boolean;
-    selectedRemoteUrl?: string | null;
-  }>;
+  getRemotes(): Promise<ProjectRemote[]>;
 };
 
 export type ProjectGitHubAccountBackfillResult =
   | { status: 'updated'; accountId: string }
   | { status: 'skipped' };
 
+/**
+ * Order remotes so `origin` is considered first, then preserve the original order.
+ * `origin` is the canonical remote, so a matching account there should win.
+ */
+function originFirst(remotes: ProjectRemote[]): ProjectRemote[] {
+  return [...remotes].sort((a, b) => {
+    if (a.name === b.name) return 0;
+    if (a.name === 'origin') return -1;
+    if (b.name === 'origin') return 1;
+    return 0;
+  });
+}
+
 export class ProjectGitHubAccountBackfillService {
-  constructor(private readonly accountLookup: AccountLookup) {}
+  constructor(
+    private readonly accountLookup: AccountLookup,
+    private readonly getOrganizationId: (projectId: string) => Promise<string>
+  ) {}
 
   async backfillProject(
     project: ProjectForGitHubAccountBackfill
@@ -32,24 +47,34 @@ export class ProjectGitHubAccountBackfillService {
     const settings = await project.settings.get();
     if (Object.hasOwn(settings, 'githubAccountId')) return { status: 'skipped' };
 
-    const remoteState = await project.getRemoteState();
-    if (!remoteState.hasRemote || !remoteState.selectedRemoteUrl) return { status: 'skipped' };
+    const remotes = await project.getRemotes();
+    if (remotes.length === 0) return { status: 'skipped' };
 
-    const repository = parseRepositoryRef(remoteState.selectedRemoteUrl);
-    if (!repository) return { status: 'skipped' };
+    const organizationId = await this.getOrganizationId(project.projectId);
+    // Consider every remote (preferring `origin`), not just the configured base remote.
+    // This keeps backfill working when a project's base remote is misconfigured and
+    // mirrors how PR sync enumerates a project's GitHub remotes from the remote list.
+    for (const remote of originFirst(remotes)) {
+      const repository = parseRepositoryRef(remote.url);
+      if (!repository) continue;
 
-    const accountId = await this.selectAccountIdForHost(repository.host);
-    if (!accountId) return { status: 'skipped' };
+      const accountId = await this.selectAccountIdForHost(organizationId, repository.host);
+      if (!accountId) continue;
 
-    const result = await project.settings.patch({ githubAccountId: accountId });
-    return result.success ? { status: 'updated', accountId } : { status: 'skipped' };
+      const result = await project.settings.patch({ githubAccountId: accountId });
+      return result.success ? { status: 'updated', accountId } : { status: 'skipped' };
+    }
+    return { status: 'skipped' };
   }
 
-  private async selectAccountIdForHost(host: string): Promise<string | null> {
+  private async selectAccountIdForHost(
+    organizationId: string,
+    host: string
+  ): Promise<string | null> {
     const normalizedHost = normalizeRepositoryHost(host);
     const [accounts, defaultAccountId] = await Promise.all([
-      this.accountLookup.listAccounts(),
-      this.accountLookup.getDefaultAccountId(),
+      this.accountLookup.listAccounts(organizationId),
+      this.accountLookup.getDefaultAccountId(organizationId),
     ]);
     const hostAccounts = accounts.filter(
       (account) => normalizeRepositoryHost(account.host) === normalizedHost

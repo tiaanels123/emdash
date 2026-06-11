@@ -1,41 +1,46 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { ProviderTokenPayload } from '@main/core/account/provider-token-registry';
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import {
   GitHubAccountRegistry,
+  type GitHubAccount,
   type GitHubAccountMetadataStore,
   type GitHubAccountSecretStore,
+  type GitHubRemovedCliAccount,
 } from './github-account-registry';
 import { GitHubAuthServerAdapter } from './github-auth-server-adapter';
 
+// The OAuth adapter does not carry an organization, so it files accounts under
+// the Personal organization. Reads in these tests use the same org id.
+const ORG_ID = PERSONAL_ORGANIZATION_ID;
+
 class InMemoryMetadataStore implements GitHubAccountMetadataStore {
-  accounts = null as Awaited<ReturnType<GitHubAccountMetadataStore['getAccounts']>>;
-  defaultAccountId: string | null = null;
-  removedCliAccounts = null as Awaited<
-    ReturnType<GitHubAccountMetadataStore['getRemovedCliAccounts']>
-  >;
+  private readonly accountsByOrg = new Map<string, GitHubAccount[]>();
+  private readonly defaultAccountIdByOrg = new Map<string, string | null>();
+  private readonly removedCliAccountsByOrg = new Map<string, GitHubRemovedCliAccount[]>();
 
-  async getAccounts() {
-    return this.accounts;
+  async getAccounts(organizationId: string) {
+    return this.accountsByOrg.get(organizationId) ?? null;
   }
 
-  async setAccounts(accounts: NonNullable<typeof this.accounts>) {
-    this.accounts = accounts;
+  async setAccounts(organizationId: string, accounts: GitHubAccount[]) {
+    this.accountsByOrg.set(organizationId, accounts);
   }
 
-  async getDefaultAccountId() {
-    return this.defaultAccountId;
+  async getDefaultAccountId(organizationId: string) {
+    return this.defaultAccountIdByOrg.get(organizationId) ?? null;
   }
 
-  async setDefaultAccountId(accountId: string | null) {
-    this.defaultAccountId = accountId;
+  async setDefaultAccountId(organizationId: string, accountId: string | null) {
+    this.defaultAccountIdByOrg.set(organizationId, accountId);
   }
 
-  async getRemovedCliAccounts() {
-    return this.removedCliAccounts;
+  async getRemovedCliAccounts(organizationId: string) {
+    return this.removedCliAccountsByOrg.get(organizationId) ?? null;
   }
 
-  async setRemovedCliAccounts(accounts: NonNullable<typeof this.removedCliAccounts>) {
-    this.removedCliAccounts = accounts;
+  async setRemovedCliAccounts(organizationId: string, accounts: GitHubRemovedCliAccount[]) {
+    this.removedCliAccountsByOrg.set(organizationId, accounts);
   }
 }
 
@@ -78,14 +83,14 @@ describe('GitHubAuthServerAdapter', () => {
 
     await adapter.storeOAuthToken(payload);
 
-    const accounts = await registry.listAccounts();
+    const accounts = await registry.listAccounts(ORG_ID);
     expect(accounts).toHaveLength(1);
     expect(accounts[0]).toMatchObject({
       id: 'github.com:42',
       login: 'monalisa',
       credentialSource: 'emdash_oauth',
     });
-    await expect(registry.resolveToken('github.com:42')).resolves.toBe('gho_monalisa');
+    await expect(registry.resolveToken(ORG_ID, 'github.com:42')).resolves.toBe('gho_monalisa');
   });
 
   it('stores linked provider accounts in the account registry', async () => {
@@ -102,19 +107,19 @@ describe('GitHubAuthServerAdapter', () => {
 
     await adapter.storeOAuthToken(payload);
 
-    const accounts = await registry.listAccounts();
+    const accounts = await registry.listAccounts(ORG_ID);
     expect(accounts).toHaveLength(1);
     expect(accounts[0]).toMatchObject({
       id: 'github.com:84',
       login: 'octocat',
       credentialSource: 'emdash_oauth',
     });
-    await expect(registry.resolveToken('github.com:84')).resolves.toBe('gho_octocat');
+    await expect(registry.resolveToken(ORG_ID, 'github.com:84')).resolves.toBe('gho_octocat');
   });
 
   it('does not store tokens when auth-server metadata is absent', async () => {
     await adapter.storeOAuthToken({ accessToken: 'gho_legacy' });
 
-    await expect(registry.listAccounts()).resolves.toEqual([]);
+    await expect(registry.listAccounts(ORG_ID)).resolves.toEqual([]);
   });
 });

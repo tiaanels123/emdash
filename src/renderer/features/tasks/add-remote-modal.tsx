@@ -1,6 +1,7 @@
 import { ChevronsUpDownIcon } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useState } from 'react';
+import { getActiveOrganizationId } from '@renderer/features/organizations/stores/organization-selectors';
 import {
   getProjectSettingsStore,
   getRepositoryStore,
@@ -100,7 +101,7 @@ export const AddRemoteModal = observer(function AddRemoteModal({
           return;
         }
 
-        const result = await rpc.github.createRepository({
+        const result = await rpc.github.createRepository(getActiveOrganizationId(), {
           name: repositoryName.trim(),
           owner: owner.value,
           isPrivate: visibility === 'private',

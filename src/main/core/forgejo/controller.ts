@@ -2,14 +2,19 @@ import { createRPCController } from '@shared/lib/ipc/rpc';
 import { forgejoConnectionService } from './forgejo-connection-service';
 
 export const forgejoController = createRPCController({
-  saveCredentials: async (creds: { instanceUrl: string; token: string }) => {
+  saveCredentials: async (
+    organizationId: string,
+    creds: { instanceUrl: string; token: string }
+  ) => {
     if (!creds.instanceUrl || !creds.token) {
       return { success: false, error: 'Instance URL and API token are required.' };
     }
-    return forgejoConnectionService.saveCredentials(creds.instanceUrl, creds.token);
+    return forgejoConnectionService.saveCredentials(organizationId, creds.instanceUrl, creds.token);
   },
 
-  clearCredentials: async () => forgejoConnectionService.clearCredentials(),
+  clearCredentials: async (organizationId: string) =>
+    forgejoConnectionService.clearCredentials(organizationId),
 
-  checkConnection: async () => forgejoConnectionService.checkConnection(),
+  checkConnection: async (organizationId: string) =>
+    forgejoConnectionService.checkConnection(organizationId),
 });

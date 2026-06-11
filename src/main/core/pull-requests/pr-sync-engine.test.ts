@@ -3,8 +3,11 @@ import { describe, expect, it, vi } from 'vitest';
 import type { GitHubApiAuthError } from '@main/core/github/services/github-api-auth-errors';
 import { err, ok } from '@shared/lib/result';
 import type { Result } from '@shared/lib/result';
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import { PrSyncEngine } from './pr-sync-engine';
 import { toPrApiError } from './pr-sync-errors';
+
+const ORG_ID = PERSONAL_ORGANIZATION_ID;
 
 vi.mock('@main/core/github/services/octokit-provider', () => ({
   getOctokit: vi.fn(),
@@ -60,15 +63,18 @@ describe('PrSyncEngine', () => {
     const getOctokit = vi.fn().mockResolvedValue(ok(makeOctokit({ createPullRequest })));
     const engine = new PrSyncEngine(getOctokit);
 
-    const result = await engine.createPullRequest({
-      repositoryUrl: 'https://ghe.example.com/acme/repo',
-      head: 'feature',
-      base: 'main',
-      title: 'Test',
-      draft: false,
-    });
+    const result = await engine.createPullRequest(
+      {
+        repositoryUrl: 'https://ghe.example.com/acme/repo',
+        head: 'feature',
+        base: 'main',
+        title: 'Test',
+        draft: false,
+      },
+      { organizationId: ORG_ID }
+    );
 
-    expect(getOctokit).toHaveBeenCalledWith('ghe.example.com', {});
+    expect(getOctokit).toHaveBeenCalledWith('ghe.example.com', { organizationId: ORG_ID });
     expect(createPullRequest).toHaveBeenCalledWith({
       owner: 'acme',
       repo: 'repo',
@@ -91,10 +97,16 @@ describe('PrSyncEngine', () => {
     );
     const engine = new PrSyncEngine(getOctokit);
 
-    engine.sync('https://github.com/acme/repo', { accountId: 'github.com:42' });
+    engine.sync('https://github.com/acme/repo', {
+      organizationId: ORG_ID,
+      accountId: 'github.com:42',
+    });
     await flushPromises();
 
-    expect(getOctokit).toHaveBeenCalledWith('github.com', { accountId: 'github.com:42' });
+    expect(getOctokit).toHaveBeenCalledWith('github.com', {
+      organizationId: ORG_ID,
+      accountId: 'github.com:42',
+    });
   });
 
   it('maps post-token PR API repository access failures to not-found-or-no-access errors', async () => {
@@ -103,13 +115,16 @@ describe('PrSyncEngine', () => {
     const engine = new PrSyncEngine(getOctokit);
 
     await expect(
-      engine.createPullRequest({
-        repositoryUrl: 'https://ghe.example.com/acme/repo',
-        head: 'feature',
-        base: 'main',
-        title: 'Test',
-        draft: false,
-      })
+      engine.createPullRequest(
+        {
+          repositoryUrl: 'https://ghe.example.com/acme/repo',
+          head: 'feature',
+          base: 'main',
+          title: 'Test',
+          draft: false,
+        },
+        { organizationId: ORG_ID }
+      )
     ).resolves.toEqual(
       err({
         type: 'not_found_or_no_access',
@@ -137,7 +152,12 @@ describe('PrSyncEngine', () => {
 
   it('preserves typed auth errors for duplicate in-flight single PR sync calls', async () => {
     let resolveOctokit!: (value: Result<Octokit, GitHubApiAuthError>) => void;
-    const getOctokit = vi.fn<(host: string) => Promise<Result<Octokit, GitHubApiAuthError>>>(
+    const getOctokit = vi.fn<
+      (
+        host: string,
+        context: { organizationId: string; accountId?: string }
+      ) => Promise<Result<Octokit, GitHubApiAuthError>>
+    >(
       () =>
         new Promise((resolve) => {
           resolveOctokit = resolve;
@@ -145,8 +165,12 @@ describe('PrSyncEngine', () => {
     );
     const engine = new PrSyncEngine(getOctokit);
 
-    const first = engine.syncSingle('https://ghe.example.com/acme/repo', 12);
-    const second = engine.syncSingle('https://ghe.example.com/acme/repo', 12);
+    const first = engine.syncSingle('https://ghe.example.com/acme/repo', 12, {
+      organizationId: ORG_ID,
+    });
+    const second = engine.syncSingle('https://ghe.example.com/acme/repo', 12, {
+      organizationId: ORG_ID,
+    });
 
     resolveOctokit(
       err({

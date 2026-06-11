@@ -142,6 +142,7 @@ export function buildAgentCommand({
   providerConfig,
   autoApprove,
   extraInitialArgs,
+  extraSessionArgs,
   initialPrompt,
   sessionId,
   providerSessionId,
@@ -151,6 +152,7 @@ export function buildAgentCommand({
   providerConfig: ProviderCustomConfig | undefined;
   autoApprove?: boolean;
   extraInitialArgs?: readonly string[];
+  extraSessionArgs?: readonly string[];
   initialPrompt?: string;
   sessionId: string;
   providerSessionId?: string;
@@ -211,6 +213,12 @@ export function buildAgentCommand({
 
   args.push(...parseArgField(providerConfig?.extraArgs));
 
+  // Per-task session args (e.g. Claude Code ultracode via --settings); applied on every
+  // spawn (initial and resume) so the selection persists, mirroring the effort env var.
+  if (extraSessionArgs?.length) {
+    args.push(...extraSessionArgs);
+  }
+
   const finalArgs =
     providerId === 'codex'
       ? dedupeSingletonArgs(args, ['--dangerously-bypass-approvals-and-sandbox'])
@@ -233,6 +241,7 @@ export function buildAgentSessionCommand(args: {
   providerConfig: ProviderCustomConfig | undefined;
   autoApprove?: boolean;
   extraInitialArgs?: readonly string[];
+  extraSessionArgs?: readonly string[];
   initialPrompt?: string;
   sessionId: string;
   providerSessionId?: string;

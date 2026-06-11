@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from '@renderer/lib/ui/dialog';
 import AsanaSetupForm from './AsanaSetupForm';
+import AzureDevOpsSetupForm from './AzureDevOpsSetupForm';
 import FeaturebaseSetupForm from './FeaturebaseSetupForm';
 import ForgejoSetupForm from './ForgejoSetupForm';
 import GitLabSetupForm from './GitLabSetupForm';
@@ -31,7 +32,8 @@ type IntegrationType =
   | 'featurebase'
   | 'asana'
   | 'monday'
-  | 'trello';
+  | 'trello'
+  | 'azuredevops';
 
 type IntegrationSetupModalArgs = {
   integration: IntegrationType;
@@ -76,6 +78,10 @@ const descriptions: Record<IntegrationType, { title: string; subtitle: string }>
     title: 'Connect Trello',
     subtitle: 'Enter your Trello API key and token, and optionally specify board URLs.',
   },
+  azuredevops: {
+    title: 'Connect Azure DevOps',
+    subtitle: 'Enter your organization, a personal access token, and optionally a project.',
+  },
 };
 
 export function IntegrationSetupModal({ integration, onSuccess, onClose }: Props) {
@@ -89,6 +95,7 @@ export function IntegrationSetupModal({ integration, onSuccess, onClose }: Props
     connectAsana,
     connectMonday,
     connectTrello,
+    connectAzureDevops,
     isLinearLoading,
     isJiraLoading,
     isGitlabLoading,
@@ -98,6 +105,7 @@ export function IntegrationSetupModal({ integration, onSuccess, onClose }: Props
     isAsanaLoading,
     isMondayLoading,
     isTrelloLoading,
+    isAzureDevopsLoading,
   } = useIntegrationsContext();
   const { toast } = useToast();
 
@@ -135,6 +143,11 @@ export function IntegrationSetupModal({ integration, onSuccess, onClose }: Props
   const [trelloToken, setTrelloToken] = useState('');
   const [trelloBoardUrls, setTrelloBoardUrls] = useState('');
 
+  // Azure DevOps state
+  const [azureOrganization, setAzureOrganization] = useState('');
+  const [azurePat, setAzurePat] = useState('');
+  const [azureProject, setAzureProject] = useState('');
+
   const [error, setError] = useState<string | null>(null);
 
   const isLoading =
@@ -146,7 +159,8 @@ export function IntegrationSetupModal({ integration, onSuccess, onClose }: Props
     (integration === 'featurebase' && isFeaturebaseLoading) ||
     (integration === 'asana' && isAsanaLoading) ||
     (integration === 'monday' && isMondayLoading) ||
-    (integration === 'trello' && isTrelloLoading);
+    (integration === 'trello' && isTrelloLoading) ||
+    (integration === 'azuredevops' && isAzureDevopsLoading);
 
   const canSubmit =
     (integration === 'linear' && !!linearKey.trim()) ||
@@ -157,7 +171,8 @@ export function IntegrationSetupModal({ integration, onSuccess, onClose }: Props
     (integration === 'featurebase' && !!featurebaseKey.trim()) ||
     (integration === 'asana' && !!asanaKey.trim()) ||
     (integration === 'monday' && !!mondayToken.trim()) ||
-    (integration === 'trello' && !!(trelloApiKey.trim() && trelloToken.trim()));
+    (integration === 'trello' && !!(trelloApiKey.trim() && trelloToken.trim())) ||
+    (integration === 'azuredevops' && !!(azureOrganization.trim() && azurePat.trim()));
 
   const handleSubmit = useCallback(async () => {
     setError(null);
@@ -204,6 +219,13 @@ export function IntegrationSetupModal({ integration, onSuccess, onClose }: Props
             boardUrls: trelloBoardUrls.trim(),
           });
           break;
+        case 'azuredevops':
+          await connectAzureDevops({
+            organization: azureOrganization.trim(),
+            pat: azurePat.trim(),
+            project: azureProject.trim() || undefined,
+          });
+          break;
       }
       toast({
         title: 'Integration connected',
@@ -231,6 +253,9 @@ export function IntegrationSetupModal({ integration, onSuccess, onClose }: Props
     trelloApiKey,
     trelloToken,
     trelloBoardUrls,
+    azureOrganization,
+    azurePat,
+    azureProject,
     connectLinear,
     connectJira,
     connectGitlab,
@@ -240,6 +265,7 @@ export function IntegrationSetupModal({ integration, onSuccess, onClose }: Props
     connectAsana,
     connectMonday,
     connectTrello,
+    connectAzureDevops,
     toast,
     onSuccess,
   ]);
@@ -324,6 +350,19 @@ export function IntegrationSetupModal({ integration, onSuccess, onClose }: Props
               if (typeof u.apiKey === 'string') setTrelloApiKey(u.apiKey);
               if (typeof u.token === 'string') setTrelloToken(u.token);
               if (typeof u.boardUrls === 'string') setTrelloBoardUrls(u.boardUrls);
+            }}
+            error={error}
+          />
+        )}
+        {integration === 'azuredevops' && (
+          <AzureDevOpsSetupForm
+            organization={azureOrganization}
+            pat={azurePat}
+            project={azureProject}
+            onChange={(u) => {
+              if (typeof u.organization === 'string') setAzureOrganization(u.organization);
+              if (typeof u.pat === 'string') setAzurePat(u.pat);
+              if (typeof u.project === 'string') setAzureProject(u.project);
             }}
             error={error}
           />

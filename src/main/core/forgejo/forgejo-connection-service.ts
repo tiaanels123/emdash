@@ -8,6 +8,7 @@ import {
   normalizeHostedInstanceUrl,
 } from '@main/core/issues/helpers/hosted-instance';
 import { encryptedAppSecretsStore } from '@main/core/secrets/encrypted-app-secrets-store';
+import { orgScopedSecretKey } from '@main/core/secrets/org-scoped-secret-key';
 import { KV } from '@main/db/kv';
 import { ISSUE_PROVIDER_CAPABILITIES, type ConnectionStatus } from '@shared/issue-providers';
 
@@ -19,7 +20,6 @@ interface ForgejoKVSchema extends Record<string, unknown> {
   connection: ForgejoConnectionConfig;
 }
 
-const forgejoKV = new KV<ForgejoKVSchema>('forgejo');
 const NOT_CONFIGURED_ERROR = 'Forgejo is not configured. Connect Forgejo in settings.';
 
 export function toForgejoErrorMessage(error: unknown, fallback: string): string {
@@ -58,10 +58,29 @@ function isNotConfigured(error: unknown): boolean {
 export class ForgejoConnectionService {
   private readonly FORGEJO_TOKEN_SECRET_KEY = 'emdash-forgejo-token';
 
-  private client: Client | null = null;
-  private clientKey: string | null = null;
+  // Caches are keyed by organization id so each organization keeps its own
+  // credential. `clients` memoizes one Forgejo client per org and is invalidated
+  // when that org's instanceUrl/token rotates; `kvs` memoizes the per-org KV
+  // namespace so connection config stays isolated between organizations.
+  private readonly clients = new Map<string, { client: Client; key: string }>();
+  private readonly kvs = new Map<string, KV<ForgejoKVSchema>>();
+
+  private secretKey(organizationId: string): string {
+    return orgScopedSecretKey(organizationId, this.FORGEJO_TOKEN_SECRET_KEY);
+  }
+
+  private kv(organizationId: string): KV<ForgejoKVSchema> {
+    const cached = this.kvs.get(organizationId);
+    if (cached) {
+      return cached;
+    }
+    const kv = new KV<ForgejoKVSchema>(`forgejo:${organizationId}`);
+    this.kvs.set(organizationId, kv);
+    return kv;
+  }
 
   async saveCredentials(
+    organizationId: string,
     instanceUrl: string,
     token: string
   ): Promise<{ success: boolean; username?: string; displayName?: string; error?: string }> {
@@ -76,11 +95,11 @@ export class ForgejoConnectionService {
     }
 
     try {
-      const client = this.getClientForCredentials(normalizedUrl, cleanToken);
+      const client = this.getClientForCredentials(organizationId, normalizedUrl, cleanToken);
       const { data: user } = await userGetCurrent({ client, throwOnError: true });
 
-      await encryptedAppSecretsStore.setSecret(this.FORGEJO_TOKEN_SECRET_KEY, cleanToken);
-      await this.writeConnection({ instanceUrl: normalizedUrl });
+      await encryptedAppSecretsStore.setSecret(this.secretKey(organizationId), cleanToken);
+      await this.writeConnection(organizationId, { instanceUrl: normalizedUrl });
 
       const username = user?.login ?? undefined;
       const displayName = user?.full_name || username;
@@ -94,13 +113,12 @@ export class ForgejoConnectionService {
     }
   }
 
-  async clearCredentials(): Promise<{ success: boolean; error?: string }> {
+  async clearCredentials(organizationId: string): Promise<{ success: boolean; error?: string }> {
     try {
-      await encryptedAppSecretsStore.deleteSecret(this.FORGEJO_TOKEN_SECRET_KEY);
-      await forgejoKV.del('connection');
+      await encryptedAppSecretsStore.deleteSecret(this.secretKey(organizationId));
+      await this.kv(organizationId).del('connection');
 
-      this.client = null;
-      this.clientKey = null;
+      this.clients.delete(organizationId);
 
       return { success: true };
     } catch (error) {
@@ -111,9 +129,9 @@ export class ForgejoConnectionService {
     }
   }
 
-  async checkConnection(): Promise<ConnectionStatus> {
+  async checkConnection(organizationId: string): Promise<ConnectionStatus> {
     try {
-      const { client } = await this.requireAuth();
+      const { client } = await this.requireAuth(organizationId);
       const { data: user } = await userGetCurrent({ client, throwOnError: true });
 
       const username = user?.login ?? undefined;
@@ -140,9 +158,9 @@ export class ForgejoConnectionService {
     }
   }
 
-  async getClient(): Promise<Client | null> {
+  async getClient(organizationId: string): Promise<Client | null> {
     try {
-      const { client } = await this.requireAuth();
+      const { client } = await this.requireAuth(organizationId);
       return client;
     } catch (error) {
       if (isNotConfigured(error)) {
@@ -153,10 +171,11 @@ export class ForgejoConnectionService {
   }
 
   async resolveRepo(
+    organizationId: string,
     projectPath: string,
     remoteName?: string
   ): Promise<{ client: Client; owner: string; repo: string; repoName: string }> {
-    const { instanceUrl, client } = await this.requireAuth();
+    const { instanceUrl, client } = await this.requireAuth(organizationId);
     const remote = await resolvePreferredRemote(projectPath, remoteName);
 
     assertRemoteHostMatchesInstance(remote.host, instanceUrl, 'Forgejo');
@@ -172,44 +191,56 @@ export class ForgejoConnectionService {
     return { client, owner, repo, repoName: repo };
   }
 
-  private async requireAuth(): Promise<{ instanceUrl: string; client: Client }> {
-    const connection = await this.readConnection();
+  private async requireAuth(
+    organizationId: string
+  ): Promise<{ instanceUrl: string; client: Client }> {
+    const connection = await this.readConnection(organizationId);
     if (!connection) {
       throw new Error(NOT_CONFIGURED_ERROR);
     }
 
-    const token = await encryptedAppSecretsStore.getSecret(this.FORGEJO_TOKEN_SECRET_KEY);
+    const token = await encryptedAppSecretsStore.getSecret(this.secretKey(organizationId));
     if (!token) {
       throw new Error(NOT_CONFIGURED_ERROR);
     }
 
     return {
       instanceUrl: connection.instanceUrl,
-      client: this.getClientForCredentials(connection.instanceUrl, token),
+      client: this.getClientForCredentials(organizationId, connection.instanceUrl, token),
     };
   }
 
-  private getClientForCredentials(instanceUrl: string, token: string): Client {
+  private getClientForCredentials(
+    organizationId: string,
+    instanceUrl: string,
+    token: string
+  ): Client {
     const key = `${instanceUrl}|${token}`;
-    if (!this.client || this.clientKey !== key) {
-      this.client = createClient({
-        baseURL: `${instanceUrl}/api/v1`,
-        headers: {
-          Authorization: `token ${token}`,
-        },
-      });
-      this.clientKey = key;
+    const cached = this.clients.get(organizationId);
+    if (cached && cached.key === key) {
+      return cached.client;
     }
 
-    return this.client;
+    const client = createClient({
+      baseURL: `${instanceUrl}/api/v1`,
+      headers: {
+        Authorization: `token ${token}`,
+      },
+    });
+    this.clients.set(organizationId, { client, key });
+
+    return client;
   }
 
-  private async writeConnection(connection: ForgejoConnectionConfig): Promise<void> {
-    await forgejoKV.set('connection', connection);
+  private async writeConnection(
+    organizationId: string,
+    connection: ForgejoConnectionConfig
+  ): Promise<void> {
+    await this.kv(organizationId).set('connection', connection);
   }
 
-  private async readConnection(): Promise<ForgejoConnectionConfig | null> {
-    const connection = await forgejoKV.get('connection');
+  private async readConnection(organizationId: string): Promise<ForgejoConnectionConfig | null> {
+    const connection = await this.kv(organizationId).get('connection');
     if (typeof connection?.instanceUrl !== 'string' || !connection.instanceUrl.trim()) return null;
     return { instanceUrl: connection.instanceUrl };
   }

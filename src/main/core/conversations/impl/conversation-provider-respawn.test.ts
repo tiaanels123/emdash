@@ -9,6 +9,10 @@ import { makePtySessionId } from '@shared/core/pty/ptySessionId';
 import { LocalConversationProvider } from './local-conversation';
 import { SshConversationProvider } from './ssh-conversation';
 
+// These tests assert POSIX shell/env behavior (e.g. SHELL=/bin/bash); the
+// Windows spawn path differs, so they are skipped there and run on CI.
+const itPosix = process.platform === 'win32' ? it.skip : it;
+
 const spawnLocalPty = vi.hoisted(() => vi.fn());
 const openSsh2Pty = vi.hoisted(() => vi.fn());
 const hookConfigWriteForProvider = vi.hoisted(() => vi.fn(async () => false));
@@ -59,6 +63,7 @@ vi.mock('./keystroke-injection', () => ({
 
 vi.mock('./provider-env', () => ({
   resolveProviderEnv: vi.fn(() => ({})),
+  effortSessionArgs: vi.fn(() => []),
 }));
 
 vi.mock('@main/lib/events', () => ({
@@ -78,6 +83,10 @@ vi.mock('@main/core/settings/provider-settings-service', () => ({
   providerOverrideSettings: {
     getItem: vi.fn(async () => undefined),
   },
+}));
+
+vi.mock('@main/core/projects/operations/getProjects', () => ({
+  getProjectOrganizationId: vi.fn(async () => '00000000-0000-4000-8000-000000000001'),
 }));
 
 vi.mock('@main/core/settings/settings-service', () => ({
@@ -205,7 +214,7 @@ describe('conversation provider respawn state', () => {
     ptySessionRegistry.unregister('project-1:task-1:conversation-1');
   });
 
-  it('passes global editor variables to local agent sessions', async () => {
+  itPosix('passes global editor variables to local agent sessions', async () => {
     const previousEditor = process.env.EDITOR;
     const previousShell = process.env.SHELL;
     try {
@@ -233,7 +242,7 @@ describe('conversation provider respawn state', () => {
     }
   });
 
-  it('uses the injected shell profile for local agent sessions', async () => {
+  itPosix('uses the injected shell profile for local agent sessions', async () => {
     const shellProfile: ConstructorParameters<typeof LocalConversationProvider>[0]['shellProfile'] =
       {
         id: 'bash',
@@ -258,7 +267,7 @@ describe('conversation provider respawn state', () => {
     );
   });
 
-  it('sets SHELL to the injected POSIX shell for local agent sessions', async () => {
+  itPosix('sets SHELL to the injected POSIX shell for local agent sessions', async () => {
     const shellProfile: ConstructorParameters<typeof LocalConversationProvider>[0]['shellProfile'] =
       {
         id: 'bash',

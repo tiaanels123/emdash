@@ -10,13 +10,14 @@ import {
 } from './github-api-auth-errors';
 
 export type GitHubApiAuthContext = {
+  organizationId: string;
   accountId?: string;
 };
 
 type GitHubAccountLookup = {
-  getDefaultAccountId(): Promise<string | null>;
-  listAccounts(): Promise<GitHubAccount[]>;
-  resolveToken(accountId: string): Promise<string | null>;
+  getDefaultAccountId(organizationId: string): Promise<string | null>;
+  listAccounts(organizationId: string): Promise<GitHubAccount[]>;
+  resolveToken(organizationId: string, accountId: string): Promise<string | null>;
 };
 
 export class GitHubApiAuthService {
@@ -24,24 +25,25 @@ export class GitHubApiAuthService {
 
   async getToken(
     host: string,
-    context: GitHubApiAuthContext = {}
+    context: GitHubApiAuthContext
   ): Promise<Result<string, GitHubApiAuthError>> {
     const normalizedHost = normalizeRepositoryHost(host);
     const accountId = context.accountId?.trim() || null;
-    const account = await this.resolveAccount(normalizedHost, accountId);
+    const account = await this.resolveAccount(context.organizationId, normalizedHost, accountId);
     if (!account) return err(githubApiAuthRequired(normalizedHost));
     if (!account.success) return err(account.error);
 
-    const token = await this.accountLookup.resolveToken(account.data.id);
+    const token = await this.accountLookup.resolveToken(context.organizationId, account.data.id);
     if (!token) return err(githubApiTokenMissing(normalizedHost, account.data.id));
     return ok(token);
   }
 
   private async resolveAccount(
+    organizationId: string,
     normalizedHost: string,
     accountId: string | null
   ): Promise<Result<GitHubAccount, GitHubApiAuthError> | null> {
-    const accounts = await this.accountLookup.listAccounts();
+    const accounts = await this.accountLookup.listAccounts(organizationId);
     if (accountId) {
       const account = accounts.find((candidate) => candidate.id === accountId);
       if (!account) return err(githubApiAccountNotFound(normalizedHost, accountId));
@@ -54,7 +56,7 @@ export class GitHubApiAuthService {
       return ok(account);
     }
 
-    const defaultAccountId = await this.accountLookup.getDefaultAccountId();
+    const defaultAccountId = await this.accountLookup.getDefaultAccountId(organizationId);
     if (!defaultAccountId) return null;
 
     const defaultAccount =

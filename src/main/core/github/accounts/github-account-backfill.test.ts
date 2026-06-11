@@ -1,41 +1,44 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GitHubTokenSource, GitHubUser } from '@shared/github';
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import { GitHubAccountBackfillService } from './github-account-backfill';
 import {
   GitHubAccountRegistry,
+  type GitHubAccount,
   type GitHubAccountMetadataStore,
   type GitHubAccountSecretStore,
+  type GitHubRemovedCliAccount,
 } from './github-account-registry';
 
+const ORG_ID = PERSONAL_ORGANIZATION_ID;
+
 class InMemoryMetadataStore implements GitHubAccountMetadataStore {
-  accounts = null as Awaited<ReturnType<GitHubAccountMetadataStore['getAccounts']>>;
-  defaultAccountId: string | null = null;
-  removedCliAccounts = null as Awaited<
-    ReturnType<GitHubAccountMetadataStore['getRemovedCliAccounts']>
-  >;
+  private readonly accountsByOrg = new Map<string, GitHubAccount[]>();
+  private readonly defaultAccountIdByOrg = new Map<string, string | null>();
+  private readonly removedCliAccountsByOrg = new Map<string, GitHubRemovedCliAccount[]>();
 
-  async getAccounts() {
-    return this.accounts;
+  async getAccounts(organizationId: string) {
+    return this.accountsByOrg.get(organizationId) ?? null;
   }
 
-  async setAccounts(accounts: NonNullable<typeof this.accounts>) {
-    this.accounts = accounts;
+  async setAccounts(organizationId: string, accounts: GitHubAccount[]) {
+    this.accountsByOrg.set(organizationId, accounts);
   }
 
-  async getDefaultAccountId() {
-    return this.defaultAccountId;
+  async getDefaultAccountId(organizationId: string) {
+    return this.defaultAccountIdByOrg.get(organizationId) ?? null;
   }
 
-  async setDefaultAccountId(accountId: string | null) {
-    this.defaultAccountId = accountId;
+  async setDefaultAccountId(organizationId: string, accountId: string | null) {
+    this.defaultAccountIdByOrg.set(organizationId, accountId);
   }
 
-  async getRemovedCliAccounts() {
-    return this.removedCliAccounts;
+  async getRemovedCliAccounts(organizationId: string) {
+    return this.removedCliAccountsByOrg.get(organizationId) ?? null;
   }
 
-  async setRemovedCliAccounts(accounts: NonNullable<typeof this.removedCliAccounts>) {
-    this.removedCliAccounts = accounts;
+  async setRemovedCliAccounts(organizationId: string, accounts: GitHubRemovedCliAccount[]) {
+    this.removedCliAccountsByOrg.set(organizationId, accounts);
   }
 }
 
@@ -92,21 +95,21 @@ describe('GitHubAccountBackfillService', () => {
   });
 
   it('backfills the legacy GitHub token into linked accounts and sets the default', async () => {
-    const account = await service.backfillLegacyToken();
+    const account = await service.backfillLegacyToken(ORG_ID);
 
     expect(account).toMatchObject({
       id: 'github.com:42',
       login: 'monalisa',
       credentialSource: 'secure_storage',
     });
-    await expect(registry.resolveToken('github.com:42')).resolves.toBe('gho_monalisa');
-    await expect(registry.getDefaultAccountId()).resolves.toBe('github.com:42');
+    await expect(registry.resolveToken(ORG_ID, 'github.com:42')).resolves.toBe('gho_monalisa');
+    await expect(registry.getDefaultAccountId(ORG_ID)).resolves.toBe('github.com:42');
     expect(identityClient.getAuthenticatedUser).toHaveBeenCalledWith('gho_monalisa', 'github.com');
     expect(legacyConnection.clearStoredToken).toHaveBeenCalled();
   });
 
   it('does not replace an existing default account', async () => {
-    const existing = await registry.upsertAccount({
+    const existing = await registry.upsertAccount(ORG_ID, {
       accessToken: 'gho_octocat',
       credentialSource: 'emdash_oauth',
       providerAccount: {
@@ -118,34 +121,36 @@ describe('GitHubAccountBackfillService', () => {
       },
     });
 
-    await expect(service.backfillLegacyToken()).resolves.toMatchObject({ id: 'github.com:42' });
+    await expect(service.backfillLegacyToken(ORG_ID)).resolves.toMatchObject({
+      id: 'github.com:42',
+    });
 
-    await expect(registry.getDefaultAccountId()).resolves.toBe(existing.id);
+    await expect(registry.getDefaultAccountId(ORG_ID)).resolves.toBe(existing.id);
   });
 
   it('does not backfill when the legacy token cannot identify a GitHub user', async () => {
     identityClient.user = null;
 
-    await expect(service.backfillLegacyToken()).resolves.toBeNull();
+    await expect(service.backfillLegacyToken(ORG_ID)).resolves.toBeNull();
 
-    await expect(registry.listAccounts()).resolves.toEqual([]);
-    await expect(registry.getDefaultAccountId()).resolves.toBeNull();
+    await expect(registry.listAccounts(ORG_ID)).resolves.toEqual([]);
+    await expect(registry.getDefaultAccountId(ORG_ID)).resolves.toBeNull();
     expect(legacyConnection.clearStoredToken).not.toHaveBeenCalled();
   });
 
   it('does not backfill when no stored legacy token exists', async () => {
     legacyConnection.token = null;
 
-    await expect(service.backfillLegacyToken()).resolves.toBeNull();
+    await expect(service.backfillLegacyToken(ORG_ID)).resolves.toBeNull();
 
     expect(identityClient.getAuthenticatedUser).not.toHaveBeenCalled();
-    await expect(registry.listAccounts()).resolves.toEqual([]);
+    await expect(registry.listAccounts(ORG_ID)).resolves.toEqual([]);
   });
 
   it('uses CLI as the credential source when the legacy token came from GitHub CLI', async () => {
     legacyConnection.source = 'cli';
 
-    await expect(service.backfillLegacyToken()).resolves.toMatchObject({
+    await expect(service.backfillLegacyToken(ORG_ID)).resolves.toMatchObject({
       id: 'github.com:42',
       credentialSource: 'cli',
     });

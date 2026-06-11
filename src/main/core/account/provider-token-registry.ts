@@ -9,6 +9,12 @@ export type ProviderAccountPayload = {
 export type ProviderTokenPayload = {
   accessToken: string;
   providerAccount?: ProviderAccountPayload;
+  /**
+   * Organization the linked account belongs to. Optional because the generic
+   * OAuth flow does not yet thread it; consumers fall back to the Personal
+   * organization when absent.
+   */
+  organizationId?: string;
 };
 
 type ProviderTokenHandler = (payload: ProviderTokenPayload) => Promise<void>;

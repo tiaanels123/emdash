@@ -2,10 +2,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { resolveProjectGitHubAuthContext } from '@main/core/github/services/project-github-auth-context';
 import { providerRepositoryService } from '@main/core/repository/provider-repository-service';
 import { err, ok } from '@shared/lib/result';
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import {
   resolveProjectPullRequestAuthContext,
   resolveProjectPullRequestContext,
 } from './project-pull-request-context';
+
+const ORG_ID = PERSONAL_ORGANIZATION_ID;
 
 vi.mock('@main/core/repository/provider-repository-service', () => ({
   providerRepositoryService: {
@@ -35,7 +38,9 @@ describe('project GitHub pull request context', () => {
         capabilities: { pullRequests: true, issues: true },
       })
     );
-    mockResolveProjectGitHubAuthContext.mockResolvedValue(ok({ accountId: 'github.com:42' }));
+    mockResolveProjectGitHubAuthContext.mockResolvedValue(
+      ok({ organizationId: ORG_ID, accountId: 'github.com:42' })
+    );
 
     await expect(resolveProjectPullRequestContext('project-1')).resolves.toEqual(
       ok({
@@ -43,7 +48,7 @@ describe('project GitHub pull request context', () => {
         repositoryUrl: 'https://github.com/acme/repo',
         host: 'github.com',
         nameWithOwner: 'acme/repo',
-        authContext: { accountId: 'github.com:42' },
+        authContext: { organizationId: ORG_ID, accountId: 'github.com:42' },
       })
     );
     expect(mockProviderRepositoryService.resolveProject).toHaveBeenCalledWith('project-1');
@@ -147,7 +152,9 @@ describe('project GitHub pull request context', () => {
         capabilities: { pullRequests: true, issues: true },
       })
     );
-    mockResolveProjectGitHubAuthContext.mockResolvedValue(ok({ accountId: 'ghe.example.com:168' }));
+    mockResolveProjectGitHubAuthContext.mockResolvedValue(
+      ok({ organizationId: ORG_ID, accountId: 'ghe.example.com:168' })
+    );
 
     await expect(resolveProjectPullRequestContext('project-1')).resolves.toEqual(
       ok({
@@ -155,17 +162,19 @@ describe('project GitHub pull request context', () => {
         repositoryUrl: 'https://ghe.example.com/acme/repo',
         host: 'ghe.example.com',
         nameWithOwner: 'acme/repo',
-        authContext: { accountId: 'ghe.example.com:168' },
+        authContext: { organizationId: ORG_ID, accountId: 'ghe.example.com:168' },
       })
     );
     expect(mockResolveProjectGitHubAuthContext).toHaveBeenCalledWith('project-1');
   });
 
   it('resolves auth-only context without resolving the project repository', async () => {
-    mockResolveProjectGitHubAuthContext.mockResolvedValue(ok({ accountId: 'github.com:42' }));
+    mockResolveProjectGitHubAuthContext.mockResolvedValue(
+      ok({ organizationId: ORG_ID, accountId: 'github.com:42' })
+    );
 
     await expect(resolveProjectPullRequestAuthContext('project-1')).resolves.toEqual(
-      ok({ accountId: 'github.com:42' })
+      ok({ organizationId: ORG_ID, accountId: 'github.com:42' })
     );
 
     expect(mockProviderRepositoryService.resolveProject).not.toHaveBeenCalled();
@@ -173,10 +182,12 @@ describe('project GitHub pull request context', () => {
   });
 
   it('resolves auth-only context for GitHub Enterprise project accounts', async () => {
-    mockResolveProjectGitHubAuthContext.mockResolvedValue(ok({ accountId: 'ghe.example.com:168' }));
+    mockResolveProjectGitHubAuthContext.mockResolvedValue(
+      ok({ organizationId: ORG_ID, accountId: 'ghe.example.com:168' })
+    );
 
     await expect(resolveProjectPullRequestAuthContext('project-1')).resolves.toEqual(
-      ok({ accountId: 'ghe.example.com:168' })
+      ok({ organizationId: ORG_ID, accountId: 'ghe.example.com:168' })
     );
 
     expect(mockResolveProjectGitHubAuthContext).toHaveBeenCalledWith('project-1');

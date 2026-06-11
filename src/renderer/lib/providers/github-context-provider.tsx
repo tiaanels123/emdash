@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import React, { createContext, useCallback, useContext, useEffect } from 'react';
+import { useActiveOrganizationId } from '@renderer/features/organizations/stores/organization-selectors';
 import { events, rpc } from '@renderer/lib/ipc';
 import { log } from '@renderer/utils/logger';
 import {
@@ -38,10 +39,11 @@ function accountSummaryToUser(account: GitHubAccountSummary | undefined): GitHub
 export function GithubContextProvider({ children }: { children: React.ReactNode }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const organizationId = useActiveOrganizationId();
 
   const { data: accountState } = useQuery<GitHubAccountState>({
-    queryKey: GITHUB_ACCOUNT_STATE_QUERY_KEY,
-    queryFn: () => rpc.github.getAccountState(),
+    queryKey: [...GITHUB_ACCOUNT_STATE_QUERY_KEY, organizationId],
+    queryFn: () => rpc.github.getAccountState(organizationId),
     staleTime: 30_000,
     refetchOnWindowFocus: true,
   });
@@ -60,11 +62,11 @@ export function GithubContextProvider({ children }: { children: React.ReactNode 
   const refreshAccountState = useCallback(
     () =>
       queryClient.fetchQuery<GitHubAccountState>({
-        queryKey: GITHUB_ACCOUNT_STATE_QUERY_KEY,
-        queryFn: () => rpc.github.getAccountState(),
+        queryKey: [...GITHUB_ACCOUNT_STATE_QUERY_KEY, organizationId],
+        queryFn: () => rpc.github.getAccountState(organizationId),
         staleTime: 0,
       }),
-    [queryClient]
+    [queryClient, organizationId]
   );
 
   const handleDeviceFlowSuccess = useCallback(

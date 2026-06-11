@@ -2,7 +2,10 @@ import { createRPCController } from '@shared/lib/ipc/rpc';
 import { trelloConnectionService } from './trello-connection-service';
 
 export const trelloController = createRPCController({
-  saveCredentials: async (input: { apiKey: string; token: string; boardUrls: string }) => {
+  saveCredentials: async (
+    organizationId: string,
+    input: { apiKey: string; token: string; boardUrls: string }
+  ) => {
     if (
       !input?.apiKey ||
       typeof input.apiKey !== 'string' ||
@@ -12,10 +15,12 @@ export const trelloController = createRPCController({
     ) {
       return { success: false, error: 'A Trello API key, token, and board URLs are required.' };
     }
-    return trelloConnectionService.saveCredentials(input);
+    return trelloConnectionService.saveCredentials(organizationId, input);
   },
 
-  checkConnection: async () => trelloConnectionService.checkConnection(),
+  checkConnection: async (organizationId: string) =>
+    trelloConnectionService.checkConnection(organizationId),
 
-  clearCredentials: async () => trelloConnectionService.clearCredentials(),
+  clearCredentials: async (organizationId: string) =>
+    trelloConnectionService.clearCredentials(organizationId),
 });

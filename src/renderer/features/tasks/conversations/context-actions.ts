@@ -43,6 +43,7 @@ const PROVIDER_LABELS: Record<LinkedIssue['provider'], string> = {
   asana: 'Asana',
   monday: 'Monday.com',
   trello: 'Trello',
+  azuredevops: 'Azure DevOps',
 };
 
 export function buildIssueContextText(issue: LinkedIssue): string {

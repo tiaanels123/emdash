@@ -1,3 +1,4 @@
+import { getProjectOrganizationId } from '@main/core/projects/operations/getProjects';
 import { projectManager } from '@main/core/projects/project-manager';
 import type {
   ConnectionStatus,
@@ -38,7 +39,10 @@ function failureStatus(provider: IssueProvider, error: unknown): ConnectionStatu
   };
 }
 
-async function checkProviderConnection(provider: IssueProvider): Promise<ConnectionStatus> {
+async function checkProviderConnection(
+  provider: IssueProvider,
+  organizationId: string
+): Promise<ConnectionStatus> {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
   const timeoutPromise = new Promise<ConnectionStatus>((resolve) => {
@@ -48,7 +52,7 @@ async function checkProviderConnection(provider: IssueProvider): Promise<Connect
   });
 
   try {
-    return await Promise.race([provider.checkConnection(), timeoutPromise]);
+    return await Promise.race([provider.checkConnection(organizationId), timeoutPromise]);
   } catch (error) {
     return failureStatus(provider, error);
   } finally {
@@ -58,17 +62,25 @@ async function checkProviderConnection(provider: IssueProvider): Promise<Connect
   }
 }
 
+/**
+ * Enriches issue query opts with the resolved organization (from the project)
+ * and the project's base remote. The organization scopes which credentials the
+ * provider reads; this is the operation-resolution path, so the org comes from
+ * the project, not the active organization.
+ */
 async function withResolvedRemote<T extends IssueQueryOpts>(opts: T): Promise<T> {
-  if (!opts.projectId) return opts;
+  const organizationId = opts.organizationId ?? (await getProjectOrganizationId(opts.projectId));
+  const resolved = { ...opts, organizationId };
+  if (!opts.projectId) return resolved;
   const project = projectManager.getProject(opts.projectId);
-  if (!project) return opts;
+  if (!project) return resolved;
 
   const remote = await project.repository.getBaseRemote().catch(() => undefined);
-  return { ...opts, remote };
+  return { ...resolved, remote };
 }
 
 export const issueController = createRPCController({
-  checkConnection: async (provider: IssueProviderType) => {
+  checkConnection: async (provider: IssueProviderType, organizationId: string) => {
     const issueProvider = getIssueProvider(provider);
     if (!issueProvider) {
       return {
@@ -78,15 +90,15 @@ export const issueController = createRPCController({
       };
     }
 
-    return checkProviderConnection(issueProvider);
+    return checkProviderConnection(issueProvider, organizationId);
   },
 
-  checkAllConnections: async (): Promise<ConnectionStatusMap> => {
+  checkAllConnections: async (organizationId: string): Promise<ConnectionStatusMap> => {
     const providers = getAllIssueProviders();
 
     const settled = await Promise.all(
       providers.map(async (provider) => {
-        const status = await checkProviderConnection(provider);
+        const status = await checkProviderConnection(provider, organizationId);
         return [provider.type, status] as const;
       })
     );

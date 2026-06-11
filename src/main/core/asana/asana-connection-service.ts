@@ -1,4 +1,5 @@
 import { encryptedAppSecretsStore } from '@main/core/secrets/encrypted-app-secrets-store';
+import { orgScopedSecretKey } from '@main/core/secrets/org-scoped-secret-key';
 import { log } from '@main/lib/logger';
 import { telemetryService } from '@main/lib/telemetry';
 import { ISSUE_PROVIDER_CAPABILITIES, type ConnectionStatus } from '@shared/issue-providers';
@@ -46,12 +47,21 @@ export function toAsanaErrorMessage(error: unknown, fallback: string): string {
 export class AsanaConnectionService {
   private readonly ASANA_TOKEN_SECRET_KEY = 'emdash-asana-token';
 
-  private cachedToken: string | null | undefined = undefined;
-  private cachedWorkspaceGid: string | null | undefined = undefined;
-  private client: AsanaClient | null = null;
-  private clientToken: string | null = null;
+  // Caches are keyed by organization id so each organization keeps its own
+  // credential. `cachedTokens` short-circuits secret reads (absence = unloaded,
+  // null = loaded-but-absent); `cachedWorkspaceGids` memoizes the primary
+  // workspace per org and is reset when that org's token rotates; `clients`
+  // memoizes one AsanaClient per org keyed alongside the token it was built for.
+  private readonly cachedTokens = new Map<string, string | null>();
+  private readonly cachedWorkspaceGids = new Map<string, string | null>();
+  private readonly clients = new Map<string, { client: AsanaClient; token: string }>();
+
+  private secretKey(organizationId: string): string {
+    return orgScopedSecretKey(organizationId, this.ASANA_TOKEN_SECRET_KEY);
+  }
 
   async saveToken(
+    organizationId: string,
     token: string
   ): Promise<{ success: boolean; workspaceName?: string; error?: string }> {
     const clean = token.trim();
@@ -60,10 +70,10 @@ export class AsanaConnectionService {
     }
 
     try {
-      const client = this.getClientForToken(clean);
+      const client = this.getClientForToken(organizationId, clean);
       const user = await this.fetchUser(client);
-      await this.storeToken(clean);
-      this.cachedWorkspaceGid = user.workspaces?.[0]?.gid ?? null;
+      await this.storeToken(organizationId, clean);
+      this.cachedWorkspaceGids.set(organizationId, user.workspaces?.[0]?.gid ?? null);
       telemetryService.capture('integration_connected', { provider: 'asana' });
 
       return {
@@ -78,13 +88,12 @@ export class AsanaConnectionService {
     }
   }
 
-  async clearToken(): Promise<{ success: boolean; error?: string }> {
+  async clearToken(organizationId: string): Promise<{ success: boolean; error?: string }> {
     try {
-      await encryptedAppSecretsStore.deleteSecret(this.ASANA_TOKEN_SECRET_KEY);
-      this.cachedToken = null;
-      this.cachedWorkspaceGid = undefined;
-      this.client = null;
-      this.clientToken = null;
+      await encryptedAppSecretsStore.deleteSecret(this.secretKey(organizationId));
+      this.cachedTokens.set(organizationId, null);
+      this.cachedWorkspaceGids.delete(organizationId);
+      this.clients.delete(organizationId);
       telemetryService.capture('integration_disconnected', { provider: 'asana' });
       return { success: true };
     } catch (error) {
@@ -96,9 +105,9 @@ export class AsanaConnectionService {
     }
   }
 
-  async checkConnection(): Promise<ConnectionStatus> {
+  async checkConnection(organizationId: string): Promise<ConnectionStatus> {
     try {
-      const token = await this.getStoredToken();
+      const token = await this.getStoredToken(organizationId);
       if (!token) {
         return {
           connected: false,
@@ -106,7 +115,7 @@ export class AsanaConnectionService {
         };
       }
 
-      const client = this.getClientForToken(token);
+      const client = this.getClientForToken(organizationId, token);
       const user = await this.fetchUser(client);
 
       return {
@@ -123,22 +132,24 @@ export class AsanaConnectionService {
     }
   }
 
-  async getClient(): Promise<AsanaClient | null> {
-    const token = await this.getStoredToken();
+  async getClient(organizationId: string): Promise<AsanaClient | null> {
+    const token = await this.getStoredToken(organizationId);
     if (!token) {
       return null;
     }
-    return this.getClientForToken(token);
+    return this.getClientForToken(organizationId, token);
   }
 
-  async getPrimaryWorkspaceGid(): Promise<string | null> {
-    const client = await this.getClient();
+  async getPrimaryWorkspaceGid(organizationId: string): Promise<string | null> {
+    const client = await this.getClient(organizationId);
     if (!client) return null;
-    if (this.cachedWorkspaceGid !== undefined) return this.cachedWorkspaceGid;
+    const cached = this.cachedWorkspaceGids.get(organizationId);
+    if (cached !== undefined) return cached;
 
     const user = await this.fetchUser(client);
-    this.cachedWorkspaceGid = user.workspaces?.[0]?.gid ?? null;
-    return this.cachedWorkspaceGid;
+    const workspaceGid = user.workspaces?.[0]?.gid ?? null;
+    this.cachedWorkspaceGids.set(organizationId, workspaceGid);
+    return workspaceGid;
   }
 
   private async fetchUser(client: AsanaClient): Promise<{
@@ -152,33 +163,37 @@ export class AsanaConnectionService {
     return response.data ?? {};
   }
 
-  private getClientForToken(token: string): AsanaClient {
-    if (!this.client || this.clientToken !== token) {
-      this.client = new AsanaClient(token);
-      this.clientToken = token;
-      this.cachedWorkspaceGid = undefined;
+  private getClientForToken(organizationId: string, token: string): AsanaClient {
+    const cached = this.clients.get(organizationId);
+    if (cached && cached.token === token) {
+      return cached.client;
     }
-    return this.client;
+    const client = new AsanaClient(token);
+    this.clients.set(organizationId, { client, token });
+    this.cachedWorkspaceGids.delete(organizationId);
+    return client;
   }
 
-  private async storeToken(token: string): Promise<void> {
+  private async storeToken(organizationId: string, token: string): Promise<void> {
     try {
-      await encryptedAppSecretsStore.setSecret(this.ASANA_TOKEN_SECRET_KEY, token);
-      this.cachedToken = token;
+      await encryptedAppSecretsStore.setSecret(this.secretKey(organizationId), token);
+      this.cachedTokens.set(organizationId, token);
     } catch (error) {
       log.error('Failed to store Asana token:', error);
       throw new Error('Unable to store Asana token securely.');
     }
   }
 
-  private async getStoredToken(): Promise<string | null> {
-    if (this.cachedToken) {
-      return this.cachedToken;
+  private async getStoredToken(organizationId: string): Promise<string | null> {
+    const cached = this.cachedTokens.get(organizationId);
+    if (cached) {
+      return cached;
     }
 
     try {
-      this.cachedToken = await encryptedAppSecretsStore.getSecret(this.ASANA_TOKEN_SECRET_KEY);
-      return this.cachedToken;
+      const token = await encryptedAppSecretsStore.getSecret(this.secretKey(organizationId));
+      this.cachedTokens.set(organizationId, token);
+      return token;
     } catch (error) {
       log.error('Failed to read Asana token from secure storage:', error);
       return null;

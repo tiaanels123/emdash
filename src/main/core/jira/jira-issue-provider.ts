@@ -3,6 +3,7 @@ import { clampIssueLimit, normalizeSearchTerm } from '@main/core/issues/helpers/
 import type { IssueProvider } from '@main/core/issues/issue-provider';
 import type { LinkedIssue } from '@shared/core/linked-issue';
 import { ISSUE_PROVIDER_CAPABILITIES, type IssueListResult } from '@shared/issue-providers';
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import { jiraConnectionService } from './jira-connection-service';
 import { doJiraGet, doJiraPost } from './jira-http-client';
 
@@ -42,15 +43,17 @@ interface JiraPickerResult {
   sections?: JiraPickerSection[];
 }
 
-let projectKeys: string[] = [];
+// Numeric-key search fallback caches the project keys per organization so each
+// organization resolves keys against its own Jira site.
+const projectKeysByOrg = new Map<string, string[]>();
 
 const SEARCH_FIELDS = ['summary', 'description', 'updated', 'project', 'status', 'assignee'];
 const PAGE_SIZE = 100;
 const JIRA_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9_]*-\d+$/;
 
-async function listIssues(limit = 50): Promise<IssueListResult> {
+async function listIssues(organizationId: string, limit = 50): Promise<IssueListResult> {
   try {
-    const { siteUrl, email, token } = await jiraConnectionService.requireAuth();
+    const { siteUrl, email, token } = await jiraConnectionService.requireAuth(organizationId);
     const sanitizedLimit = clampIssueLimit(limit, 50, 500);
     try {
       const issues = await searchJql(siteUrl, email, token, buildListJql('mine'), sanitizedLimit);
@@ -119,14 +122,18 @@ async function listIssues(limit = 50): Promise<IssueListResult> {
   }
 }
 
-async function smartSearchIssues(searchTerm: string, limit = 20): Promise<IssueListResult> {
+async function smartSearchIssues(
+  organizationId: string,
+  searchTerm: string,
+  limit = 20
+): Promise<IssueListResult> {
   const term = normalizeSearchTerm(searchTerm);
   if (!term) {
     return { success: true, issues: [] };
   }
 
   try {
-    const { siteUrl, email, token } = await jiraConnectionService.requireAuth();
+    const { siteUrl, email, token } = await jiraConnectionService.requireAuth(organizationId);
 
     const looksLikeKey = JIRA_KEY_PATTERN.test(term);
     if (looksLikeKey) {
@@ -142,8 +149,10 @@ async function smartSearchIssues(searchTerm: string, limit = 20): Promise<IssueL
     }
 
     const isNumeric = /^\d+$/.test(term);
+    let projectKeys = projectKeysByOrg.get(organizationId) ?? [];
     if (isNumeric && projectKeys.length === 0) {
       projectKeys = await fetchProjectKeys(siteUrl, email, token);
+      projectKeysByOrg.set(organizationId, projectKeys);
     }
 
     const keyClause =
@@ -371,9 +380,15 @@ export const jiraIssueProvider: IssueProvider = {
   type: 'jira',
   capabilities: ISSUE_PROVIDER_CAPABILITIES.jira,
 
-  checkConnection: () => jiraConnectionService.checkConnection(),
+  checkConnection: (organizationId) => jiraConnectionService.checkConnection(organizationId),
 
-  listIssues: async (opts) => listIssues(opts.limit ?? 50),
+  listIssues: async (opts) =>
+    listIssues(opts.organizationId ?? PERSONAL_ORGANIZATION_ID, opts.limit ?? 50),
 
-  searchIssues: async (opts) => smartSearchIssues(opts.searchTerm, opts.limit ?? 20),
+  searchIssues: async (opts) =>
+    smartSearchIssues(
+      opts.organizationId ?? PERSONAL_ORGANIZATION_ID,
+      opts.searchTerm,
+      opts.limit ?? 20
+    ),
 };

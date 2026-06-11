@@ -13,12 +13,15 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { initializeDatabase } from '@main/db/initialize';
 import * as schema from '@main/db/schema';
 
-const fixturesDir = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../fixtures');
+// Use fileURLToPath (not new URL(...).pathname) so Windows drive letters resolve
+// correctly — the latter yields `/C:/...`, producing a `C:\C:\...` copy path.
+const fixturesDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../fixtures');
 
 export type FixtureDb = {
   db: ReturnType<typeof drizzle<typeof schema>>;

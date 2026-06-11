@@ -7,6 +7,7 @@ import {
   type IssueListResult,
 } from '@shared/issue-providers';
 import { err, ok, type Result } from '@shared/lib/result';
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import type { RepositoryRef } from '@shared/repository-ref';
 import { githubAccountRegistry } from './accounts/github-account-registry-instance';
 import type { GitHubApiAuthContext } from './services/github-api-auth-service';
@@ -95,7 +96,7 @@ function issueListErrorMetadata(error: IssueListError): IssueListErrorMetadata {
 async function listIssues(
   repository: RepositoryRef,
   limit: number,
-  authContext?: GitHubApiAuthContext
+  authContext: GitHubApiAuthContext
 ): Promise<Result<LinkedIssue[], IssueListError>> {
   const issues = await issueService.listIssues(repository, limit, authContext);
   if (!issues.success) return err(issues.error);
@@ -106,7 +107,7 @@ async function searchIssues(
   repository: RepositoryRef,
   searchTerm: string,
   limit: number,
-  authContext?: GitHubApiAuthContext
+  authContext: GitHubApiAuthContext
 ): Promise<Result<LinkedIssue[], IssueListError>> {
   if (!normalizeSearchTerm(searchTerm)) {
     return ok([]);
@@ -118,9 +119,11 @@ async function searchIssues(
 }
 
 async function resolveIssueAuthContext(
+  organizationId: string,
   projectId: string | undefined
-): Promise<Result<GitHubApiAuthContext | undefined, IssueListError>> {
-  if (!projectId) return ok(undefined);
+): Promise<Result<GitHubApiAuthContext, IssueListError>> {
+  // No project context: use the organization's default GitHub account.
+  if (!projectId) return ok({ organizationId });
   const authContext = await resolveProjectGitHubAuthContext(projectId);
   if (authContext.success) return ok(authContext.data);
   if (authContext.error.type === 'unconfigured') {
@@ -167,16 +170,16 @@ async function resolveRepository(opts: {
   }
 }
 
-async function getDefaultLinkedAccountConnection() {
-  const defaultAccountId = await githubAccountRegistry.getDefaultAccountId();
+async function getDefaultLinkedAccountConnection(organizationId: string) {
+  const defaultAccountId = await githubAccountRegistry.getDefaultAccountId(organizationId);
   if (!defaultAccountId) return null;
 
-  const account = (await githubAccountRegistry.listAccounts()).find(
+  const account = (await githubAccountRegistry.listAccounts(organizationId)).find(
     (candidate) => candidate.id === defaultAccountId
   );
   if (!account) return null;
 
-  const token = await githubAccountRegistry.resolveToken(account.id);
+  const token = await githubAccountRegistry.resolveToken(organizationId, account.id);
   if (!token) return null;
 
   return {
@@ -190,8 +193,8 @@ export const githubIssueProvider: IssueProvider = {
   type: 'github',
   capabilities: ISSUE_PROVIDER_CAPABILITIES.github,
 
-  checkConnection: async () => {
-    const linkedAccountConnection = await getDefaultLinkedAccountConnection();
+  checkConnection: async (organizationId) => {
+    const linkedAccountConnection = await getDefaultLinkedAccountConnection(organizationId);
     if (linkedAccountConnection) return linkedAccountConnection;
 
     return {
@@ -205,7 +208,8 @@ export const githubIssueProvider: IssueProvider = {
     const repository = await resolveRepository(opts);
     if (!repository.success) return toIssueListResult(repository);
 
-    const authContext = await resolveIssueAuthContext(opts.projectId);
+    const organizationId = opts.organizationId ?? PERSONAL_ORGANIZATION_ID;
+    const authContext = await resolveIssueAuthContext(organizationId, opts.projectId);
     if (!authContext.success) return toIssueListResult(err(authContext.error));
     return toIssueListResult(await listIssues(repository.data, opts.limit ?? 50, authContext.data));
   },
@@ -214,7 +218,8 @@ export const githubIssueProvider: IssueProvider = {
     const repository = await resolveRepository(opts);
     if (!repository.success) return toIssueListResult(repository);
 
-    const authContext = await resolveIssueAuthContext(opts.projectId);
+    const organizationId = opts.organizationId ?? PERSONAL_ORGANIZATION_ID;
+    const authContext = await resolveIssueAuthContext(organizationId, opts.projectId);
     if (!authContext.success) return toIssueListResult(err(authContext.error));
     return toIssueListResult(
       await searchIssues(repository.data, opts.searchTerm, opts.limit ?? 20, authContext.data)

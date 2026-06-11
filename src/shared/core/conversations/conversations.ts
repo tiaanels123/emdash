@@ -12,6 +12,8 @@ export type Conversation = {
   lastInteractedAt: string | null;
   resume?: boolean;
   autoApprove?: boolean;
+  /** Claude Code reasoning effort level injected as CLAUDE_CODE_EFFORT_LEVEL at spawn. */
+  effort?: string;
   /** Provider-native session id captured at runtime for per-chat resume. */
   providerSessionId?: string;
   isInitialConversation: boolean | null;
@@ -31,6 +33,7 @@ export type CreateConversationParams = {
   provider: AgentProviderId;
   title: string;
   autoApprove?: boolean;
+  effort?: string;
   isInitialConversation?: boolean;
   initialSize?: { cols: number; rows: number };
   initialPrompt?: string;

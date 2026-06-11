@@ -1,11 +1,15 @@
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import type { GitHubAccount } from './github-account-registry';
 
 type LegacyAccountBackfill = {
-  backfillLegacyToken(): Promise<GitHubAccount | null>;
+  backfillLegacyToken(organizationId: string): Promise<GitHubAccount | null>;
 };
 
 type CliAccountImporter = {
-  importAccounts(options?: { skipRemovedAccounts?: boolean }): Promise<GitHubAccount[]>;
+  importAccounts(
+    organizationId: string,
+    options?: { skipRemovedAccounts?: boolean }
+  ): Promise<GitHubAccount[]>;
 };
 
 type WarningLogger = {
@@ -30,9 +34,16 @@ export class GitHubAccountReconciliationService {
     }
   ) {}
 
+  /**
+   * Startup reconciliation runs before any organization is "active" (and would
+   * race across windows if it tried to pick one), so legacy and CLI accounts
+   * discovered at boot are filed under the Personal organization — the same
+   * destination the one-time data migration used for pre-existing accounts.
+   */
   async reconcileAtStartup(): Promise<GitHubAccountReconciliationResult> {
-    const legacyAccount = await this.backfillLegacyToken();
-    const cliAccounts = await this.importCliAccounts();
+    const organizationId = PERSONAL_ORGANIZATION_ID;
+    const legacyAccount = await this.backfillLegacyToken(organizationId);
+    const cliAccounts = await this.importCliAccounts(organizationId);
 
     return {
       legacyAccountId: legacyAccount?.id ?? null,
@@ -40,9 +51,9 @@ export class GitHubAccountReconciliationService {
     };
   }
 
-  private async backfillLegacyToken(): Promise<GitHubAccount | null> {
+  private async backfillLegacyToken(organizationId: string): Promise<GitHubAccount | null> {
     try {
-      return await this.deps.legacyBackfill.backfillLegacyToken();
+      return await this.deps.legacyBackfill.backfillLegacyToken(organizationId);
     } catch (error) {
       this.deps.logger.warn('Failed to backfill legacy GitHub account token', {
         error: errorMessage(error),
@@ -51,9 +62,11 @@ export class GitHubAccountReconciliationService {
     }
   }
 
-  private async importCliAccounts(): Promise<GitHubAccount[]> {
+  private async importCliAccounts(organizationId: string): Promise<GitHubAccount[]> {
     try {
-      return await this.deps.cliImporter.importAccounts({ skipRemovedAccounts: true });
+      return await this.deps.cliImporter.importAccounts(organizationId, {
+        skipRemovedAccounts: true,
+      });
     } catch (error) {
       this.deps.logger.warn('Failed to import GitHub CLI accounts during startup', {
         error: errorMessage(error),

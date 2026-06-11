@@ -23,7 +23,11 @@ vi.mock('@main/lib/telemetry', () => ({
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import { MONDAY_API_ERROR_MESSAGES, MondayConnectionService } from './monday-connection-service';
+
+const ORG_ID = PERSONAL_ORGANIZATION_ID;
+const CREDENTIALS_KEY = `emdash-monday-credentials:${ORG_ID}`;
 
 describe('MondayConnectionService', () => {
   let service: MondayConnectionService;
@@ -44,11 +48,11 @@ describe('MondayConnectionService', () => {
       });
 
       const input = { token: 'valid-token', boardUrls: '' };
-      const result = await service.saveCredentials(input);
+      const result = await service.saveCredentials(ORG_ID, input);
 
       expect(result).toEqual({ success: true, workspaceName: meResponse.data.me.account.name });
       expect(mockSetSecret).toHaveBeenCalledWith(
-        'emdash-monday-credentials',
+        CREDENTIALS_KEY,
         JSON.stringify({ token: input.token, boardIds: [], boardUrls: [] })
       );
     });
@@ -67,11 +71,11 @@ describe('MondayConnectionService', () => {
         boardUrls:
           'https://myteam.monday.com/boards/123456\nhttps://myteam.monday.com/boards/789012, https://myteam.monday.com/boards/123456',
       };
-      const result = await service.saveCredentials(input);
+      const result = await service.saveCredentials(ORG_ID, input);
 
       expect(result.success).toBe(true);
       expect(mockSetSecret).toHaveBeenCalledWith(
-        'emdash-monday-credentials',
+        CREDENTIALS_KEY,
         JSON.stringify({
           token: input.token,
           boardIds: ['123456', '789012'],
@@ -96,11 +100,11 @@ describe('MondayConnectionService', () => {
         token: 'valid-token',
         boardUrls: 'https://myteam.monday.com/boards/123456?workspaceId=987654',
       };
-      const result = await service.saveCredentials(input);
+      const result = await service.saveCredentials(ORG_ID, input);
 
       expect(result.success).toBe(true);
       expect(mockSetSecret).toHaveBeenCalledWith(
-        'emdash-monday-credentials',
+        CREDENTIALS_KEY,
         JSON.stringify({
           token: input.token,
           boardIds: ['123456'],
@@ -110,7 +114,7 @@ describe('MondayConnectionService', () => {
     });
 
     it('returns error for invalid board URL format', async () => {
-      const result = await service.saveCredentials({
+      const result = await service.saveCredentials(ORG_ID, {
         token: 'valid-token',
         boardUrls: 'not-a-url',
       });
@@ -122,7 +126,7 @@ describe('MondayConnectionService', () => {
     });
 
     it('returns error for empty token', async () => {
-      const result = await service.saveCredentials({ token: '  ', boardUrls: '' });
+      const result = await service.saveCredentials(ORG_ID, { token: '  ', boardUrls: '' });
 
       expect(result).toEqual({ success: false, error: 'Monday.com API token cannot be empty.' });
       expect(mockFetch).not.toHaveBeenCalled();
@@ -136,7 +140,7 @@ describe('MondayConnectionService', () => {
         json: async () => errorResponse,
       });
 
-      const result = await service.saveCredentials({ token: 'bad-token', boardUrls: '' });
+      const result = await service.saveCredentials(ORG_ID, { token: 'bad-token', boardUrls: '' });
 
       expect(result.success).toBe(false);
       expect(result.error).toContain(errorResponse.errors[0].message);
@@ -149,7 +153,7 @@ describe('MondayConnectionService', () => {
         json: async () => ({}),
       });
 
-      const result = await service.saveCredentials({ token: 'bad-token', boardUrls: '' });
+      const result = await service.saveCredentials(ORG_ID, { token: 'bad-token', boardUrls: '' });
 
       expect(result).toEqual({
         success: false,
@@ -162,7 +166,7 @@ describe('MondayConnectionService', () => {
     it('defaults missing legacy board IDs to an empty list', async () => {
       mockGetSecret.mockResolvedValueOnce(JSON.stringify({ token: 'stored-token' }));
 
-      const result = await service.getStoredCredentials();
+      const result = await service.getStoredCredentials(ORG_ID);
 
       expect(result).toEqual({ token: 'stored-token', boardIds: [], boardUrls: [] });
     });
@@ -170,7 +174,7 @@ describe('MondayConnectionService', () => {
     it('returns null for invalid stored credential shapes', async () => {
       mockGetSecret.mockResolvedValueOnce(JSON.stringify({ token: 123, boardIds: [] }));
 
-      const result = await service.getStoredCredentials();
+      const result = await service.getStoredCredentials(ORG_ID);
 
       expect(result).toBeNull();
     });
@@ -189,7 +193,7 @@ describe('MondayConnectionService', () => {
         json: async () => meResponse,
       });
 
-      const result = await service.checkConnection();
+      const result = await service.checkConnection(ORG_ID);
 
       expect(result.connected).toBe(true);
       expect(result.displayName).toBe(meResponse.data.me.account.name);
@@ -198,7 +202,7 @@ describe('MondayConnectionService', () => {
     it('returns not connected when no stored credentials', async () => {
       mockGetSecret.mockResolvedValueOnce(null);
 
-      const result = await service.checkConnection();
+      const result = await service.checkConnection(ORG_ID);
 
       expect(result.connected).toBe(false);
     });
@@ -206,10 +210,10 @@ describe('MondayConnectionService', () => {
 
   describe('clearCredentials', () => {
     it('deletes stored credentials', async () => {
-      const result = await service.clearCredentials();
+      const result = await service.clearCredentials(ORG_ID);
 
       expect(result).toEqual({ success: true });
-      expect(mockDeleteSecret).toHaveBeenCalledWith('emdash-monday-credentials');
+      expect(mockDeleteSecret).toHaveBeenCalledWith(CREDENTIALS_KEY);
     });
   });
 });

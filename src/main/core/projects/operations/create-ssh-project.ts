@@ -8,11 +8,14 @@ import { projectManager } from '@main/core/projects/project-manager';
 import { sshConnectionManager } from '@main/core/ssh/lifecycle/production-ssh-connection-manager';
 import { db } from '@main/db/client';
 import { projects } from '@main/db/schema';
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import type { ProjectPathStatus, SshProject } from '@shared/projects';
 import { ensureGitRepository, resolveProjectBaseRef } from './create-project-utils';
 
 export type CreateSshProjectParams = {
   id?: string;
+  /** Owning organization; defaults to the Personal organization when omitted. */
+  organizationId?: string;
   name: string;
   path: string;
   connectionId: string;
@@ -37,6 +40,7 @@ export async function createSshProject(params: CreateSshProjectParams): Promise<
     .insert(projects)
     .values({
       id: params.id ?? randomUUID(),
+      organizationId: params.organizationId ?? PERSONAL_ORGANIZATION_ID,
       name: params.name,
       path: gitInfo.rootPath,
       workspaceProvider: 'ssh',
@@ -49,6 +53,7 @@ export async function createSshProject(params: CreateSshProjectParams): Promise<
   const project = {
     type: 'ssh' as const,
     id: row.id,
+    organizationId: row.organizationId,
     name: row.name,
     path: row.path,
     connectionId: params.connectionId,

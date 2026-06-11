@@ -34,14 +34,14 @@ export class GitHubAccountBackfillService {
     private readonly identityClient: GitHubIdentityClient
   ) {}
 
-  async backfillLegacyToken(): Promise<GitHubAccount | null> {
+  async backfillLegacyToken(organizationId: string): Promise<GitHubAccount | null> {
     const tokenRecord = await this.legacyTokenStore.getStoredTokenRecord();
     if (!tokenRecord) return null;
 
     const user = await this.identityClient.getAuthenticatedUser(tokenRecord.token, 'github.com');
     if (!user) return null;
 
-    const account = await this.accountRegistry.upsertAccount({
+    const account = await this.accountRegistry.upsertAccount(organizationId, {
       accessToken: tokenRecord.token,
       credentialSource: credentialSource(tokenRecord.source),
       providerAccount: providerAccountFromUser(user),

@@ -1,4 +1,5 @@
 import { computed, makeAutoObservable, observable, reaction, runInAction } from 'mobx';
+import { getOrganizationManagerStore } from '@renderer/features/organizations/stores/organization-selectors';
 import {
   type ProjectStore,
   type UnregisteredProject,
@@ -82,10 +83,16 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
 
   get orderedProjects(): ProjectStore[] {
     const all = Array.from(this.projectManager.projects.values());
+    // Scope the project list to the active organization. Unregistered projects
+    // (being created in the active org) always show; before the org list has
+    // loaded (activeId === null) nothing is filtered out.
+    const activeOrgId = getOrganizationManagerStore().activeId;
 
     const unregistered = all.filter((p): p is UnregisteredProject => p.state === 'unregistered');
     const real = all.filter(
-      (p): p is ProjectStore & { data: LocalProject | SshProject } => p.state !== 'unregistered'
+      (p): p is ProjectStore & { data: LocalProject | SshProject } =>
+        p.state !== 'unregistered' &&
+        (activeOrgId === null || p.data?.organizationId === activeOrgId)
     );
 
     const sorted = [...real].sort((a, b) => {

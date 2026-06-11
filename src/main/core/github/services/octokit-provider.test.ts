@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { err, ok } from '@shared/lib/result';
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import { githubApiAuthService } from './github-api-auth-service-instance';
 import { clearOctokitCache, getOctokit } from './octokit-provider';
+
+const ORG_ID = PERSONAL_ORGANIZATION_ID;
 
 const mockOctokit = vi.hoisted(() => vi.fn());
 
@@ -20,7 +23,7 @@ const mockGetToken = vi.mocked(githubApiAuthService.getToken);
 describe('getOctokit', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    clearOctokitCache();
+    clearOctokitCache(ORG_ID);
     mockOctokit.mockImplementation(function (options) {
       return { options };
     });
@@ -29,7 +32,9 @@ describe('getOctokit', () => {
   it('uses api.github.com for github.com', async () => {
     mockGetToken.mockResolvedValue(ok('github-token'));
 
-    await expect(getOctokit('github.com')).resolves.toMatchObject({ success: true });
+    await expect(getOctokit('github.com', { organizationId: ORG_ID })).resolves.toMatchObject({
+      success: true,
+    });
     expect(mockOctokit).toHaveBeenCalledWith(
       expect.objectContaining({
         auth: 'github-token',
@@ -42,11 +47,16 @@ describe('getOctokit', () => {
   it('passes the selected account context to token resolution', async () => {
     mockGetToken.mockResolvedValue(ok('selected-account-token'));
 
-    await expect(getOctokit('github.com', { accountId: 'github.com:42' })).resolves.toMatchObject({
+    await expect(
+      getOctokit('github.com', { organizationId: ORG_ID, accountId: 'github.com:42' })
+    ).resolves.toMatchObject({
       success: true,
     });
 
-    expect(mockGetToken).toHaveBeenCalledWith('github.com', { accountId: 'github.com:42' });
+    expect(mockGetToken).toHaveBeenCalledWith('github.com', {
+      organizationId: ORG_ID,
+      accountId: 'github.com:42',
+    });
     expect(mockOctokit).toHaveBeenCalledWith(
       expect.objectContaining({
         auth: 'selected-account-token',
@@ -60,9 +70,9 @@ describe('getOctokit', () => {
       .mockResolvedValueOnce(ok('token-b'))
       .mockResolvedValueOnce(ok('token-a'));
 
-    await getOctokit('github.com', { accountId: 'github.com:42' });
-    await getOctokit('github.com', { accountId: 'github.com:84' });
-    await getOctokit('github.com', { accountId: 'github.com:42' });
+    await getOctokit('github.com', { organizationId: ORG_ID, accountId: 'github.com:42' });
+    await getOctokit('github.com', { organizationId: ORG_ID, accountId: 'github.com:84' });
+    await getOctokit('github.com', { organizationId: ORG_ID, accountId: 'github.com:42' });
 
     expect(mockOctokit).toHaveBeenCalledTimes(2);
   });
@@ -74,11 +84,11 @@ describe('getOctokit', () => {
       .mockResolvedValueOnce(ok('token-a'))
       .mockResolvedValueOnce(ok('token-b'));
 
-    await getOctokit('github.com', { accountId: 'github.com:42' });
-    await getOctokit('github.com', { accountId: 'github.com:84' });
-    clearOctokitCache('github.com', 'github.com:42');
-    await getOctokit('github.com', { accountId: 'github.com:42' });
-    await getOctokit('github.com', { accountId: 'github.com:84' });
+    await getOctokit('github.com', { organizationId: ORG_ID, accountId: 'github.com:42' });
+    await getOctokit('github.com', { organizationId: ORG_ID, accountId: 'github.com:84' });
+    clearOctokitCache(ORG_ID, 'github.com', 'github.com:42');
+    await getOctokit('github.com', { organizationId: ORG_ID, accountId: 'github.com:42' });
+    await getOctokit('github.com', { organizationId: ORG_ID, accountId: 'github.com:84' });
 
     expect(mockOctokit).toHaveBeenCalledTimes(3);
   });
@@ -86,7 +96,9 @@ describe('getOctokit', () => {
   it('uses the enterprise API base URL for GHES hosts', async () => {
     mockGetToken.mockResolvedValue(ok('ghes-token'));
 
-    await expect(getOctokit('ghe.example.com')).resolves.toMatchObject({ success: true });
+    await expect(getOctokit('ghe.example.com', { organizationId: ORG_ID })).resolves.toMatchObject({
+      success: true,
+    });
     expect(mockOctokit).toHaveBeenCalledWith(
       expect.objectContaining({
         auth: 'ghes-token',
@@ -101,7 +113,7 @@ describe('getOctokit', () => {
       err({ type: 'auth_required', host: 'ghe.example.com', message: 'auth required' })
     );
 
-    await expect(getOctokit('ghe.example.com')).resolves.toEqual({
+    await expect(getOctokit('ghe.example.com', { organizationId: ORG_ID })).resolves.toEqual({
       success: false,
       error: { type: 'auth_required', host: 'ghe.example.com', message: 'auth required' },
     });

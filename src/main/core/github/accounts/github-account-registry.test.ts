@@ -1,37 +1,64 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import {
   GitHubAccountRegistry,
+  type GitHubAccount,
   type GitHubAccountMetadataStore,
   type GitHubAccountSecretStore,
+  type GitHubRemovedCliAccount,
 } from './github-account-registry';
 
+const ORG_ID = PERSONAL_ORGANIZATION_ID;
+
+type OrgMetadata = {
+  accounts: GitHubAccount[] | null;
+  defaultAccountId: string | null;
+  removedCliAccounts: GitHubRemovedCliAccount[] | null;
+};
+
 class InMemoryMetadataStore implements GitHubAccountMetadataStore {
-  accounts: unknown = null;
-  defaultAccountId: string | null = null;
-  removedCliAccounts: unknown = null;
+  private readonly byOrg = new Map<string, OrgMetadata>();
 
-  async getAccounts() {
-    return this.accounts as never;
+  private org(organizationId: string): OrgMetadata {
+    let metadata = this.byOrg.get(organizationId);
+    if (!metadata) {
+      metadata = { accounts: null, defaultAccountId: null, removedCliAccounts: null };
+      this.byOrg.set(organizationId, metadata);
+    }
+    return metadata;
   }
 
-  async setAccounts(value: unknown) {
-    this.accounts = value;
+  async getAccounts(organizationId: string) {
+    return this.org(organizationId).accounts;
   }
 
-  async getDefaultAccountId() {
-    return this.defaultAccountId;
+  async setAccounts(organizationId: string, accounts: GitHubAccount[]) {
+    this.org(organizationId).accounts = accounts;
   }
 
-  async setDefaultAccountId(accountId: string | null) {
-    this.defaultAccountId = accountId;
+  async getDefaultAccountId(organizationId: string) {
+    return this.org(organizationId).defaultAccountId;
   }
 
-  async getRemovedCliAccounts() {
-    return this.removedCliAccounts as never;
+  async setDefaultAccountId(organizationId: string, accountId: string | null) {
+    this.org(organizationId).defaultAccountId = accountId;
   }
 
-  async setRemovedCliAccounts(value: unknown) {
-    this.removedCliAccounts = value;
+  async getRemovedCliAccounts(organizationId: string) {
+    return this.org(organizationId).removedCliAccounts;
+  }
+
+  async setRemovedCliAccounts(organizationId: string, accounts: GitHubRemovedCliAccount[]) {
+    this.org(organizationId).removedCliAccounts = accounts;
+  }
+
+  // Test-only accessors for asserting/seeding stored default state per org.
+  readDefaultAccountId(organizationId: string): string | null {
+    return this.org(organizationId).defaultAccountId;
+  }
+
+  seedDefaultAccountId(organizationId: string, accountId: string | null): void {
+    this.org(organizationId).defaultAccountId = accountId;
   }
 }
 
@@ -49,6 +76,11 @@ class InMemorySecretStore implements GitHubAccountSecretStore {
   async deleteSecret(key: string) {
     this.secrets.delete(key);
   }
+
+  // Test-only accessor to assert raw secret keys.
+  rawGet(key: string): string | null {
+    return this.secrets.get(key) ?? null;
+  }
 }
 
 describe('GitHubAccountRegistry', () => {
@@ -63,7 +95,7 @@ describe('GitHubAccountRegistry', () => {
   });
 
   async function upsertAccount(login: string, providerAccountId: string, host = 'github.com') {
-    return registry.upsertAccount({
+    return registry.upsertAccount(ORG_ID, {
       accessToken: `gho_${login}`,
       credentialSource: 'emdash_oauth',
       providerAccount: {
@@ -77,7 +109,7 @@ describe('GitHubAccountRegistry', () => {
   }
 
   it('stores OAuth account metadata separately from the account token', async () => {
-    const account = await registry.upsertAccount({
+    const account = await registry.upsertAccount(ORG_ID, {
       accessToken: 'gho_monalisa',
       credentialSource: 'emdash_oauth',
       providerAccount: {
@@ -89,8 +121,9 @@ describe('GitHubAccountRegistry', () => {
       },
     });
 
-    await expect(registry.resolveToken(account.id)).resolves.toBe('gho_monalisa');
-    await expect(registry.listAccounts()).resolves.toEqual([
+    await expect(registry.resolveToken(ORG_ID, account.id)).resolves.toBe('gho_monalisa');
+    expect(secretStore.rawGet(`github-account-token:${ORG_ID}:${account.id}`)).toBe('gho_monalisa');
+    await expect(registry.listAccounts(ORG_ID)).resolves.toEqual([
       {
         id: 'github.com:42',
         providerAccountId: '42',
@@ -105,7 +138,7 @@ describe('GitHubAccountRegistry', () => {
   });
 
   it('updates an existing account instead of duplicating it', async () => {
-    await registry.upsertAccount({
+    await registry.upsertAccount(ORG_ID, {
       accessToken: 'old-token',
       credentialSource: 'emdash_oauth',
       providerAccount: {
@@ -117,7 +150,7 @@ describe('GitHubAccountRegistry', () => {
       },
     });
 
-    const updated = await registry.upsertAccount({
+    const updated = await registry.upsertAccount(ORG_ID, {
       accessToken: 'new-token',
       credentialSource: 'emdash_oauth',
       providerAccount: {
@@ -129,8 +162,8 @@ describe('GitHubAccountRegistry', () => {
       },
     });
 
-    await expect(registry.resolveToken(updated.id)).resolves.toBe('new-token');
-    const accounts = await registry.listAccounts();
+    await expect(registry.resolveToken(ORG_ID, updated.id)).resolves.toBe('new-token');
+    const accounts = await registry.listAccounts(ORG_ID);
     expect(accounts).toHaveLength(1);
     expect(accounts[0]).toMatchObject({
       id: 'github.com:42',
@@ -140,7 +173,7 @@ describe('GitHubAccountRegistry', () => {
   });
 
   it('removes account metadata and credentials together', async () => {
-    const account = await registry.upsertAccount({
+    const account = await registry.upsertAccount(ORG_ID, {
       accessToken: 'gho_monalisa',
       credentialSource: 'emdash_oauth',
       providerAccount: {
@@ -152,14 +185,15 @@ describe('GitHubAccountRegistry', () => {
       },
     });
 
-    await registry.removeAccount(account.id);
+    await registry.removeAccount(ORG_ID, account.id);
 
-    await expect(registry.listAccounts()).resolves.toEqual([]);
-    await expect(registry.resolveToken(account.id)).resolves.toBeNull();
+    await expect(registry.listAccounts(ORG_ID)).resolves.toEqual([]);
+    await expect(registry.resolveToken(ORG_ID, account.id)).resolves.toBeNull();
+    expect(secretStore.rawGet(`github-account-token:${ORG_ID}:${account.id}`)).toBeNull();
   });
 
   it('records a durable tombstone when a CLI-sourced account is removed', async () => {
-    const account = await registry.upsertAccount({
+    const account = await registry.upsertAccount(ORG_ID, {
       accessToken: 'gho_monalisa',
       credentialSource: 'cli',
       providerAccount: {
@@ -171,9 +205,9 @@ describe('GitHubAccountRegistry', () => {
       },
     });
 
-    await registry.removeAccount(account.id);
+    await registry.removeAccount(ORG_ID, account.id);
 
-    await expect(registry.listRemovedCliAccounts()).resolves.toEqual([
+    await expect(registry.listRemovedCliAccounts(ORG_ID)).resolves.toEqual([
       {
         accountId: 'github.com:42',
         host: 'github.com',
@@ -185,13 +219,13 @@ describe('GitHubAccountRegistry', () => {
   it('does not tombstone accounts removed from non-CLI credential sources', async () => {
     const account = await upsertAccount('monalisa', '42');
 
-    await registry.removeAccount(account.id);
+    await registry.removeAccount(ORG_ID, account.id);
 
-    await expect(registry.listRemovedCliAccounts()).resolves.toEqual([]);
+    await expect(registry.listRemovedCliAccounts(ORG_ID)).resolves.toEqual([]);
   });
 
   it('clears a matching CLI tombstone when the account is reconnected', async () => {
-    const account = await registry.upsertAccount({
+    const account = await registry.upsertAccount(ORG_ID, {
       accessToken: 'gho_monalisa',
       credentialSource: 'cli',
       providerAccount: {
@@ -202,79 +236,79 @@ describe('GitHubAccountRegistry', () => {
         avatarUrl: '',
       },
     });
-    await registry.removeAccount(account.id);
+    await registry.removeAccount(ORG_ID, account.id);
 
     await upsertAccount('monalisa', '42');
 
-    await expect(registry.listRemovedCliAccounts()).resolves.toEqual([]);
+    await expect(registry.listRemovedCliAccounts(ORG_ID)).resolves.toEqual([]);
   });
 
   it('sets the first linked account as the default account', async () => {
     const account = await upsertAccount('monalisa', '42');
 
-    await expect(registry.getDefaultAccountId()).resolves.toBe(account.id);
+    await expect(registry.getDefaultAccountId(ORG_ID)).resolves.toBe(account.id);
   });
 
   it('does not replace the default account when another account is linked', async () => {
     const first = await upsertAccount('monalisa', '42');
     await upsertAccount('octocat', '84');
 
-    await expect(registry.getDefaultAccountId()).resolves.toBe(first.id);
+    await expect(registry.getDefaultAccountId(ORG_ID)).resolves.toBe(first.id);
   });
 
   it('allows explicitly changing the default account to a linked account', async () => {
     await upsertAccount('monalisa', '42');
     const second = await upsertAccount('octocat', '84');
 
-    await expect(registry.setDefaultAccountId(second.id)).resolves.toEqual(second);
-    await expect(registry.getDefaultAccountId()).resolves.toBe(second.id);
+    await expect(registry.setDefaultAccountId(ORG_ID, second.id)).resolves.toEqual(second);
+    await expect(registry.getDefaultAccountId(ORG_ID)).resolves.toBe(second.id);
   });
 
   it('does not set the default account to an unknown account id', async () => {
     await upsertAccount('monalisa', '42');
 
-    await expect(registry.setDefaultAccountId('github.com:unknown')).resolves.toBeNull();
-    await expect(registry.getDefaultAccountId()).resolves.toBe('github.com:42');
+    await expect(registry.setDefaultAccountId(ORG_ID, 'github.com:unknown')).resolves.toBeNull();
+    await expect(registry.getDefaultAccountId(ORG_ID)).resolves.toBe('github.com:42');
   });
 
   it('repairs an invalid stored default account to the oldest linked account', async () => {
     const first = await upsertAccount('monalisa', '42');
     await upsertAccount('octocat', '84');
-    metadataStore.defaultAccountId = 'github.com:missing';
+    metadataStore.seedDefaultAccountId(ORG_ID, 'github.com:missing');
 
-    await expect(registry.getDefaultAccountId()).resolves.toBe(first.id);
-    expect(metadataStore.defaultAccountId).toBe(first.id);
+    await expect(registry.getDefaultAccountId(ORG_ID)).resolves.toBe(first.id);
+    expect(metadataStore.readDefaultAccountId(ORG_ID)).toBe(first.id);
   });
 
   it('uses the oldest account as default when a new account is linked and the stored default is invalid', async () => {
     const first = await upsertAccount('monalisa', '42');
-    metadataStore.defaultAccountId = 'github.com:missing';
+    metadataStore.seedDefaultAccountId(ORG_ID, 'github.com:missing');
 
     await upsertAccount('octocat', '84');
 
-    await expect(registry.getDefaultAccountId()).resolves.toBe(first.id);
+    await expect(registry.getDefaultAccountId(ORG_ID)).resolves.toBe(first.id);
   });
 
   it('moves the default account to the oldest remaining account when the default is removed', async () => {
     const first = await upsertAccount('monalisa', '42');
     const second = await upsertAccount('octocat', '84');
     const third = await upsertAccount('hubot', '168');
-    await registry.setDefaultAccountId(second.id);
+    await registry.setDefaultAccountId(ORG_ID, second.id);
 
-    await registry.removeAccount(second.id);
+    await registry.removeAccount(ORG_ID, second.id);
 
-    await expect(registry.getDefaultAccountId()).resolves.toBe(first.id);
-    await expect(registry.resolveToken(second.id)).resolves.toBeNull();
-    await expect(registry.resolveToken(third.id)).resolves.toBe('gho_hubot');
+    await expect(registry.getDefaultAccountId(ORG_ID)).resolves.toBe(first.id);
+    await expect(registry.resolveToken(ORG_ID, second.id)).resolves.toBeNull();
+    await expect(registry.resolveToken(ORG_ID, third.id)).resolves.toBe('gho_hubot');
   });
 
   it('clears the default account when the last account is removed', async () => {
     const account = await upsertAccount('monalisa', '42');
 
-    await registry.removeAccount(account.id);
+    await registry.removeAccount(ORG_ID, account.id);
 
-    await expect(registry.getDefaultAccountId()).resolves.toBeNull();
-    expect(metadataStore.defaultAccountId).toBeNull();
+    await expect(registry.getDefaultAccountId(ORG_ID)).resolves.toBeNull();
+    expect(metadataStore.readDefaultAccountId(ORG_ID)).toBeNull();
   });
 
   it('stores accounts with the same provider account id on different hosts separately', async () => {
@@ -283,7 +317,7 @@ describe('GitHubAccountRegistry', () => {
 
     expect(githubDotCom.id).toBe('github.com:42');
     expect(enterprise.id).toBe('ghe.example.com:42');
-    await expect(registry.listAccounts()).resolves.toHaveLength(2);
+    await expect(registry.listAccounts(ORG_ID)).resolves.toHaveLength(2);
   });
 
   it('normalizes www.github.com account hosts to github.com', async () => {
@@ -291,5 +325,59 @@ describe('GitHubAccountRegistry', () => {
 
     expect(account.id).toBe('github.com:42');
     expect(account.host).toBe('github.com');
+  });
+
+  it('isolates accounts, defaults, and tokens between organizations', async () => {
+    const otherOrgId = 'org-other';
+
+    const personalAccount = await registry.upsertAccount(ORG_ID, {
+      accessToken: 'gho_personal',
+      credentialSource: 'emdash_oauth',
+      providerAccount: {
+        providerId: 'github',
+        providerAccountId: '42',
+        host: 'github.com',
+        login: 'monalisa',
+        avatarUrl: '',
+      },
+    });
+    const otherAccount = await registry.upsertAccount(otherOrgId, {
+      accessToken: 'gho_other',
+      credentialSource: 'emdash_oauth',
+      providerAccount: {
+        providerId: 'github',
+        providerAccountId: '99',
+        host: 'github.com',
+        login: 'octocat',
+        avatarUrl: '',
+      },
+    });
+
+    // Each org only sees its own account.
+    await expect(registry.listAccounts(ORG_ID)).resolves.toEqual([
+      expect.objectContaining({ id: personalAccount.id, login: 'monalisa' }),
+    ]);
+    await expect(registry.listAccounts(otherOrgId)).resolves.toEqual([
+      expect.objectContaining({ id: otherAccount.id, login: 'octocat' }),
+    ]);
+
+    // Tokens are stored under org-scoped secret keys.
+    expect(secretStore.rawGet(`github-account-token:${ORG_ID}:${personalAccount.id}`)).toBe(
+      'gho_personal'
+    );
+    expect(secretStore.rawGet(`github-account-token:${otherOrgId}:${otherAccount.id}`)).toBe(
+      'gho_other'
+    );
+    await expect(registry.resolveToken(ORG_ID, otherAccount.id)).resolves.toBeNull();
+
+    // Defaults are tracked independently per org.
+    await expect(registry.getDefaultAccountId(ORG_ID)).resolves.toBe(personalAccount.id);
+    await expect(registry.getDefaultAccountId(otherOrgId)).resolves.toBe(otherAccount.id);
+
+    // Removing in one org leaves the other untouched.
+    await registry.removeAccount(ORG_ID, personalAccount.id);
+    await expect(registry.listAccounts(ORG_ID)).resolves.toEqual([]);
+    await expect(registry.listAccounts(otherOrgId)).resolves.toHaveLength(1);
+    await expect(registry.resolveToken(otherOrgId, otherAccount.id)).resolves.toBe('gho_other');
   });
 });

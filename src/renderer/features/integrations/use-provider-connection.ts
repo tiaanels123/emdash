@@ -4,14 +4,16 @@ import { useCallback } from 'react';
 type ConnectionMutationResult = { success?: boolean; error?: string } | null | undefined;
 
 type UseProviderConnectionOptions<TInput> = {
-  connectMutationFn: (input: TInput) => Promise<ConnectionMutationResult>;
-  disconnectMutationFn: () => Promise<unknown>;
+  organizationId: string;
+  connectMutationFn: (organizationId: string, input: TInput) => Promise<ConnectionMutationResult>;
+  disconnectMutationFn: (organizationId: string) => Promise<unknown>;
   invalidate: () => void;
   fallbackError: string;
   validateInput?: (input: TInput) => string | null;
 };
 
 export function useProviderConnection<TInput>({
+  organizationId,
   connectMutationFn,
   disconnectMutationFn,
   invalidate,
@@ -19,12 +21,12 @@ export function useProviderConnection<TInput>({
   validateInput,
 }: UseProviderConnectionOptions<TInput>) {
   const connectMutation = useMutation({
-    mutationFn: (input: TInput) => connectMutationFn(input),
+    mutationFn: (input: TInput) => connectMutationFn(organizationId, input),
     onSettled: invalidate,
   });
 
   const disconnectMutation = useMutation({
-    mutationFn: () => disconnectMutationFn(),
+    mutationFn: () => disconnectMutationFn(organizationId),
     onSettled: invalidate,
   });
 

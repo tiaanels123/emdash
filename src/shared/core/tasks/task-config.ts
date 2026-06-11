@@ -13,6 +13,7 @@ const v1Schema = z.object({
       provider: z.string(),
       title: z.string().optional(),
       autoApprove: z.boolean().optional(),
+      effort: z.string().optional(),
       initialPrompt: z.string().optional(),
     })
     .optional(),

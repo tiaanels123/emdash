@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { err, ok } from '@shared/lib/result';
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import { githubAccountRegistry } from './accounts/github-account-registry-instance';
 import { githubIssueProvider } from './github-issue-provider';
 import { githubRepositoryResolver } from './services/github-repository-resolver';
@@ -56,7 +57,9 @@ describe('githubIssueProvider', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRepositoryResolver.resolve.mockResolvedValue(ok(githubRepository));
-    mockResolveProjectGitHubAuthContext.mockResolvedValue(ok({}));
+    mockResolveProjectGitHubAuthContext.mockResolvedValue(
+      ok({ organizationId: PERSONAL_ORGANIZATION_ID })
+    );
     mockGithubAccountRegistry.getDefaultAccountId.mockResolvedValue(null);
     mockGithubAccountRegistry.listAccounts.mockResolvedValue([]);
     mockGithubAccountRegistry.resolveToken.mockResolvedValue(null);
@@ -78,7 +81,7 @@ describe('githubIssueProvider', () => {
     ]);
     mockGithubAccountRegistry.resolveToken.mockResolvedValue('gho_monalisa');
 
-    await expect(githubIssueProvider.checkConnection()).resolves.toEqual({
+    await expect(githubIssueProvider.checkConnection(PERSONAL_ORGANIZATION_ID)).resolves.toEqual({
       connected: true,
       displayName: 'monalisa',
       capabilities: githubIssueProvider.capabilities,
@@ -101,7 +104,7 @@ describe('githubIssueProvider', () => {
     ]);
     mockGithubAccountRegistry.resolveToken.mockResolvedValue(null);
 
-    await expect(githubIssueProvider.checkConnection()).resolves.toEqual({
+    await expect(githubIssueProvider.checkConnection(PERSONAL_ORGANIZATION_ID)).resolves.toEqual({
       connected: false,
       displayName: undefined,
       capabilities: githubIssueProvider.capabilities,
@@ -117,11 +120,15 @@ describe('githubIssueProvider', () => {
     });
 
     expect(mockResolveProjectGitHubAuthContext).not.toHaveBeenCalled();
-    expect(mockIssueService.listIssues).toHaveBeenCalledWith(githubRepository, 7, undefined);
+    expect(mockIssueService.listIssues).toHaveBeenCalledWith(githubRepository, 7, {
+      organizationId: PERSONAL_ORGANIZATION_ID,
+    });
   });
 
   it('passes project GitHub account context when listing issues for a project', async () => {
-    mockResolveProjectGitHubAuthContext.mockResolvedValue(ok({ accountId: 'github.com:42' }));
+    mockResolveProjectGitHubAuthContext.mockResolvedValue(
+      ok({ organizationId: PERSONAL_ORGANIZATION_ID, accountId: 'github.com:42' })
+    );
     mockIssueService.listIssues.mockResolvedValue(ok([]));
 
     await githubIssueProvider.listIssues({
@@ -132,6 +139,7 @@ describe('githubIssueProvider', () => {
 
     expect(mockResolveProjectGitHubAuthContext).toHaveBeenCalledWith('project-1');
     expect(mockIssueService.listIssues).toHaveBeenCalledWith(githubRepository, 7, {
+      organizationId: PERSONAL_ORGANIZATION_ID,
       accountId: 'github.com:42',
     });
   });
@@ -222,16 +230,15 @@ describe('githubIssueProvider', () => {
     });
 
     expect(mockResolveProjectGitHubAuthContext).not.toHaveBeenCalled();
-    expect(mockIssueService.searchIssues).toHaveBeenCalledWith(
-      githubRepository,
-      'bug',
-      3,
-      undefined
-    );
+    expect(mockIssueService.searchIssues).toHaveBeenCalledWith(githubRepository, 'bug', 3, {
+      organizationId: PERSONAL_ORGANIZATION_ID,
+    });
   });
 
   it('passes project GitHub account context when searching issues for a project', async () => {
-    mockResolveProjectGitHubAuthContext.mockResolvedValue(ok({ accountId: 'github.com:42' }));
+    mockResolveProjectGitHubAuthContext.mockResolvedValue(
+      ok({ organizationId: PERSONAL_ORGANIZATION_ID, accountId: 'github.com:42' })
+    );
     mockIssueService.searchIssues.mockResolvedValue(ok([]));
 
     await githubIssueProvider.searchIssues({
@@ -243,6 +250,7 @@ describe('githubIssueProvider', () => {
 
     expect(mockResolveProjectGitHubAuthContext).toHaveBeenCalledWith('project-1');
     expect(mockIssueService.searchIssues).toHaveBeenCalledWith(githubRepository, 'bug', 3, {
+      organizationId: PERSONAL_ORGANIZATION_ID,
       accountId: 'github.com:42',
     });
   });
@@ -312,7 +320,9 @@ describe('githubIssueProvider', () => {
 
   it('passes project GitHub Enterprise account context when listing issues for a project', async () => {
     mockRepositoryResolver.resolve.mockResolvedValue(ok(ghesRepository));
-    mockResolveProjectGitHubAuthContext.mockResolvedValue(ok({ accountId: 'ghe.example.com:168' }));
+    mockResolveProjectGitHubAuthContext.mockResolvedValue(
+      ok({ organizationId: PERSONAL_ORGANIZATION_ID, accountId: 'ghe.example.com:168' })
+    );
     mockIssueService.listIssues.mockResolvedValue(ok([]));
 
     await githubIssueProvider.listIssues({
@@ -323,6 +333,7 @@ describe('githubIssueProvider', () => {
 
     expect(mockResolveProjectGitHubAuthContext).toHaveBeenCalledWith('project-1');
     expect(mockIssueService.listIssues).toHaveBeenCalledWith(ghesRepository, 7, {
+      organizationId: PERSONAL_ORGANIZATION_ID,
       accountId: 'ghe.example.com:168',
     });
   });

@@ -2,49 +2,47 @@
 
 ## Main Entry Points
 
-- `src/renderer/App.tsx`: top-level provider composition
-- `src/renderer/views/Workspace.tsx`: main post-onboarding shell
-- `src/renderer/components/MainContent.tsx`: switches between views (projects, tasks, settings, skills, MCP, home)
-- `src/renderer/core/ipc.ts`: typed RPC client (`rpc`) and event emitter (`events`) used throughout renderer
+- `src/renderer/main.tsx`: boot entry — mounts `App.tsx` into `index.html` and runs bootstrap (loads stores, restores view-state snapshots).
+- `src/renderer/App.tsx`: top-level provider composition.
+- `src/renderer/lib/ipc.ts`: typed RPC client (`rpc`) and event emitter (`events`) used throughout the renderer.
 
-## View Areas (`src/renderer/views/`)
+## Application Shell (`src/renderer/app/`)
 
-- `projects/` — project management: active project, pending project, create task modal, settings panel, task panel, branch selector, titlebar
-- `tasks/` — task experience:
-  - `conversations/` — conversation panel and tabs
-  - `diff-viewer/` — file changes panel, diff views (file, stacked), PR section, git state providers
-  - `editor/` — Monaco code editor, file tree, editor providers, conflict dialog
-  - `terminals/` — terminal panel and tabs
-  - `hooks/` — task-scoped hooks (use-task, use-conversations, use-terminals, use-task-view-navigation)
-- `settings/` — settings view
-- `home-view.tsx`, `mcp-view.tsx`, `skills-view.tsx`, `Welcome.tsx`
+- `workspace.tsx`, `home-view.tsx`, `welcome.tsx` — top-level views.
+- `view-registry.ts` — central registry of views and navigation guards.
+- `modal-registry.ts` — central registry of all modals.
+- `app-menu-events.tsx` — native application-menu event wiring.
 
-## Component Areas (`src/renderer/components/`)
+## Feature Modules (`src/renderer/features/`)
 
-- `sidebar/` — app sidebar
-- `diff/` — diff-related components
-- `skills/` — skills catalog and management
-- `mcp/` — MCP server management
-- `kanban/` — kanban board
-- `integrations/` — integration management
-- `ssh/` — SSH connection UI
-- `FileExplorer/` — file tree navigation
-- `settings/` — settings components
-- `projects/` — project-related components
-- `ui/` — shared UI primitives
+Each module owns its UI and, where relevant, its stores and selectors:
 
-## Supporting Structure
+- `projects` — project management, settings panel, add-project, PR view, branch selector.
+- `tasks` — task experience: conversations, diff viewer, Monaco editor, terminals, PR selector.
+- `organizations` — organization store (`OrganizationManagerStore`), selectors (`getActiveOrganizationId`, `useActiveOrganizationId`), organization switcher, and organization modal. The active organization scopes projects and per-org integration/MCP/provider-settings UIs.
+- `sidebar` — app sidebar (hosts the organization switcher; groups projects by the active organization).
+- `integrations` — issue-tracker / git-host connect/disconnect/status UI (per-organization credentials).
+- `settings` — settings pages (including per-org integrations, GitHub accounts, and provider settings).
+- `mcp` — MCP server management for the active organization.
+- `automations`, `command-palette`, `library`, `onboarding`, `skills` — supporting feature modules.
 
-- Context providers: `src/renderer/contexts/`
-- Hooks: `src/renderer/hooks/`
-- Client-side state helpers, stores, and utilities: `src/renderer/lib/`
-- Core infrastructure: `src/renderer/core/` (IPC client, modals, project state, PTY helpers, view management)
+## Shared Renderer Infrastructure (`src/renderer/lib/`)
+
+- `ipc.ts` — typed `rpc` client and `events` emitter (the single entry point to the engine).
+- `stores/` — MobX domain stores, accessed via selectors/hooks with readiness modeled explicitly.
+- `query-client.ts` + cache-invalidation helpers — TanStack Query setup and coordination.
+- `commands/` — the command registry powering the command palette.
+- `ui/`, `components/`, `layout/`, `theme/` — UI primitives, composites, layout, and theming.
+- `modal/` — modal infrastructure.
+- `pty/` — renderer-side xterm/PTY integration.
+- `monaco/`, `editor/` — code/diff editor integration.
+- `providers/`, `hooks/` — React context providers and shared hooks.
 
 ## When Editing Here
 
-- Check `agents/conventions/renderer-patterns.md` for modal, view, PTY frontend, and context patterns.
-- Call RPC methods via the typed `rpc` client from `src/renderer/core/ipc.ts` (e.g., `rpc.tasks.create(...)`).
-- New modals must be registered in `src/renderer/core/modal/registry.ts`.
-- New views must be registered in `src/renderer/core/view/registry.ts`.
-- Only methods in `src/renderer/types/electron-api.d.ts` use direct `window.electronAPI` calls (PTY ops, fsList, openIn).
-- If you change user-visible workflows, update the matching page in `docs/` when appropriate.
+- Check `agents/conventions/renderer-patterns.md` for modal, view, store, PTY-frontend, and context patterns.
+- Call RPC methods via the typed `rpc` client from `src/renderer/lib/ipc.ts` (e.g., `rpc.tasks.create(...)`); subscribe to streaming data via the typed `events` emitter.
+- New modals must be registered in `src/renderer/app/modal-registry.ts`.
+- New views must be registered in `src/renderer/app/view-registry.ts`.
+- New commands use `src/renderer/lib/commands/registry.ts`.
+- Keep renderer↔main calls on typed RPC/events; the preload bridge (`window.electronAPI`) stays small and is added to only when a browser/Electron primitive cannot fit the RPC/event path.

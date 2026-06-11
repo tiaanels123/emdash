@@ -3,6 +3,7 @@ import type { IssueProvider } from '@main/core/issues/issue-provider';
 import { log } from '@main/lib/logger';
 import type { LinkedIssue } from '@shared/core/linked-issue';
 import { ISSUE_PROVIDER_CAPABILITIES, type IssueListResult } from '@shared/issue-providers';
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import type { AsanaClient } from './asana-client';
 import {
   asanaConnectionService,
@@ -52,17 +53,19 @@ function toIssue(task: AsanaTask): LinkedIssue {
   };
 }
 
-async function getClientAndWorkspace(): Promise<
+async function getClientAndWorkspace(
+  organizationId: string
+): Promise<
   { success: true; client: AsanaClient; workspaceGid: string } | { success: false; error: string }
 > {
-  const client = await asanaConnectionService.getClient();
+  const client = await asanaConnectionService.getClient(organizationId);
   if (!client) {
     return { success: false, error: NOT_CONFIGURED_ERROR };
   }
 
   let workspaceGid: string | null;
   try {
-    workspaceGid = await asanaConnectionService.getPrimaryWorkspaceGid();
+    workspaceGid = await asanaConnectionService.getPrimaryWorkspaceGid(organizationId);
   } catch (error) {
     return {
       success: false,
@@ -80,8 +83,8 @@ async function getClientAndWorkspace(): Promise<
   return { success: true, client, workspaceGid };
 }
 
-async function listIssues(limit: number): Promise<IssueListResult> {
-  const resolved = await getClientAndWorkspace();
+async function listIssues(organizationId: string, limit: number): Promise<IssueListResult> {
+  const resolved = await getClientAndWorkspace(organizationId);
   if (!resolved.success) {
     return { success: false, error: resolved.error };
   }
@@ -109,13 +112,17 @@ async function listIssues(limit: number): Promise<IssueListResult> {
   }
 }
 
-async function searchIssues(searchTerm: string, limit: number): Promise<IssueListResult> {
+async function searchIssues(
+  organizationId: string,
+  searchTerm: string,
+  limit: number
+): Promise<IssueListResult> {
   const term = normalizeSearchTerm(searchTerm);
   if (!term) {
     return { success: true, issues: [] };
   }
 
-  const resolved = await getClientAndWorkspace();
+  const resolved = await getClientAndWorkspace(organizationId);
   if (!resolved.success) {
     return { success: false, error: resolved.error };
   }
@@ -151,9 +158,15 @@ export const asanaIssueProvider: IssueProvider = {
   type: 'asana',
   capabilities: ISSUE_PROVIDER_CAPABILITIES.asana,
 
-  checkConnection: () => asanaConnectionService.checkConnection(),
+  checkConnection: (organizationId) => asanaConnectionService.checkConnection(organizationId),
 
-  listIssues: async (opts) => listIssues(opts.limit ?? 50),
+  listIssues: async (opts) =>
+    listIssues(opts.organizationId ?? PERSONAL_ORGANIZATION_ID, opts.limit ?? 50),
 
-  searchIssues: async (opts) => searchIssues(opts.searchTerm, opts.limit ?? 20),
+  searchIssues: async (opts) =>
+    searchIssues(
+      opts.organizationId ?? PERSONAL_ORGANIZATION_ID,
+      opts.searchTerm,
+      opts.limit ?? 20
+    ),
 };

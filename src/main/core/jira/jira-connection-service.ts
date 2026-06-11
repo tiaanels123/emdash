@@ -1,6 +1,7 @@
 import { request } from 'node:https';
 import { URL } from 'node:url';
 import { encryptedAppSecretsStore } from '@main/core/secrets/encrypted-app-secrets-store';
+import { orgScopedSecretKey } from '@main/core/secrets/org-scoped-secret-key';
 import { KV } from '@main/db/kv';
 import { telemetryService } from '@main/lib/telemetry';
 import { ISSUE_PROVIDER_CAPABILITIES, type ConnectionStatus } from '@shared/issue-providers';
@@ -18,8 +19,6 @@ interface JiraUser {
   errorMessages?: string[];
 }
 
-const jiraKV = new KV<JiraKVSchema>('jira');
-
 function encodeBasic(email: string, token: string): string {
   return Buffer.from(`${email}:${token}`).toString('base64');
 }
@@ -27,15 +26,36 @@ function encodeBasic(email: string, token: string): string {
 export class JiraConnectionService {
   private readonly JIRA_TOKEN_SECRET_KEY = 'emdash-jira-token';
 
+  // The Jira creds (siteUrl/email) live in a per-organization KV namespace so
+  // each organization keeps its own credential. The KV instances are memoized
+  // per organization id; the token itself is stored under an org-scoped secret
+  // key in the encrypted app secrets store.
+  private readonly kvByOrg = new Map<string, KV<JiraKVSchema>>();
+
+  private secretKey(organizationId: string): string {
+    return orgScopedSecretKey(organizationId, this.JIRA_TOKEN_SECRET_KEY);
+  }
+
+  private kv(organizationId: string): KV<JiraKVSchema> {
+    const cached = this.kvByOrg.get(organizationId);
+    if (cached) {
+      return cached;
+    }
+    const kv = new KV<JiraKVSchema>(`jira:${organizationId}`);
+    this.kvByOrg.set(organizationId, kv);
+    return kv;
+  }
+
   async saveCredentials(
+    organizationId: string,
     siteUrl: string,
     email: string,
     token: string
   ): Promise<{ success: boolean; displayName?: string; error?: string }> {
     try {
       const me = await this.getMyself(siteUrl, email, token);
-      await encryptedAppSecretsStore.setSecret(this.JIRA_TOKEN_SECRET_KEY, token);
-      await this.writeCreds({ siteUrl, email });
+      await encryptedAppSecretsStore.setSecret(this.secretKey(organizationId), token);
+      await this.writeCreds(organizationId, { siteUrl, email });
       telemetryService.capture('integration_connected', { provider: 'jira' });
       return { success: true, displayName: me?.displayName };
     } catch (error) {
@@ -43,13 +63,13 @@ export class JiraConnectionService {
     }
   }
 
-  async clearCredentials(): Promise<{ success: boolean; error?: string }> {
+  async clearCredentials(organizationId: string): Promise<{ success: boolean; error?: string }> {
     try {
       try {
-        await encryptedAppSecretsStore.deleteSecret(this.JIRA_TOKEN_SECRET_KEY);
+        await encryptedAppSecretsStore.deleteSecret(this.secretKey(organizationId));
       } catch {}
       try {
-        await jiraKV.del('creds');
+        await this.kv(organizationId).del('creds');
       } catch {}
       telemetryService.capture('integration_disconnected', { provider: 'jira' });
       return { success: true };
@@ -58,9 +78,9 @@ export class JiraConnectionService {
     }
   }
 
-  async checkConnection(): Promise<ConnectionStatus> {
+  async checkConnection(organizationId: string): Promise<ConnectionStatus> {
     try {
-      const creds = await this.readCreds();
+      const creds = await this.readCreds(organizationId);
       if (!creds) {
         return {
           connected: false,
@@ -68,7 +88,7 @@ export class JiraConnectionService {
         };
       }
 
-      const token = await encryptedAppSecretsStore.getSecret(this.JIRA_TOKEN_SECRET_KEY);
+      const token = await encryptedAppSecretsStore.getSecret(this.secretKey(organizationId));
       if (!token) {
         return {
           connected: false,
@@ -91,19 +111,21 @@ export class JiraConnectionService {
     }
   }
 
-  async requireAuth(): Promise<{ siteUrl: string; email: string; token: string }> {
-    const creds = await this.readCreds();
+  async requireAuth(
+    organizationId: string
+  ): Promise<{ siteUrl: string; email: string; token: string }> {
+    const creds = await this.readCreds(organizationId);
     if (!creds) throw new Error('Jira credentials not set.');
 
-    const token = await encryptedAppSecretsStore.getSecret(this.JIRA_TOKEN_SECRET_KEY);
+    const token = await encryptedAppSecretsStore.getSecret(this.secretKey(organizationId));
     if (!token) throw new Error('Jira token not found.');
 
     return { ...creds, token };
   }
 
-  private async readCreds(): Promise<JiraCreds | null> {
+  private async readCreds(organizationId: string): Promise<JiraCreds | null> {
     try {
-      const obj = await jiraKV.get('creds');
+      const obj = await this.kv(organizationId).get('creds');
       const siteUrl = String(obj?.siteUrl || '').trim();
       const email = String(obj?.email || '').trim();
       if (!siteUrl || !email) return null;
@@ -113,8 +135,8 @@ export class JiraConnectionService {
     }
   }
 
-  private async writeCreds(creds: JiraCreds): Promise<void> {
-    await jiraKV.set('creds', { siteUrl: creds.siteUrl, email: creds.email });
+  private async writeCreds(organizationId: string, creds: JiraCreds): Promise<void> {
+    await this.kv(organizationId).set('creds', { siteUrl: creds.siteUrl, email: creds.email });
   }
 
   private async getMyself(siteUrl: string, email: string, token: string): Promise<JiraUser> {

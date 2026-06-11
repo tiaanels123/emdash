@@ -1,6 +1,7 @@
 import type { Octokit } from '@octokit/rest';
 import { describe, expect, it, vi } from 'vitest';
 import { err, ok } from '@shared/lib/result';
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import { issueService } from './issue-service';
 import { getOctokit } from './octokit-provider';
 
@@ -9,6 +10,9 @@ vi.mock('./octokit-provider', () => ({
 }));
 
 const mockGetOctokit = vi.mocked(getOctokit);
+
+const ORG_ID = PERSONAL_ORGANIZATION_ID;
+const authContext = { organizationId: ORG_ID };
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -77,9 +81,9 @@ describe('GitHubIssueServiceImpl', () => {
       const listForRepo = vi.fn().mockResolvedValue({ data: [restIssue] });
       mockGetOctokit.mockResolvedValue(ok(makeOctokit({ listForRepo })));
 
-      const result = await issueService.listIssues(repository, 30);
+      const result = await issueService.listIssues(repository, 30, authContext);
 
-      expect(mockGetOctokit).toHaveBeenCalledWith('github.com', {});
+      expect(mockGetOctokit).toHaveBeenCalledWith('github.com', { organizationId: ORG_ID });
       expect(listForRepo).toHaveBeenCalledWith({
         owner: 'owner',
         repo: 'repo',
@@ -95,9 +99,15 @@ describe('GitHubIssueServiceImpl', () => {
       const listForRepo = vi.fn().mockResolvedValue({ data: [] });
       mockGetOctokit.mockResolvedValue(ok(makeOctokit({ listForRepo })));
 
-      await issueService.listIssues(repository, 30, { accountId: 'github.com:42' });
+      await issueService.listIssues(repository, 30, {
+        organizationId: ORG_ID,
+        accountId: 'github.com:42',
+      });
 
-      expect(mockGetOctokit).toHaveBeenCalledWith('github.com', { accountId: 'github.com:42' });
+      expect(mockGetOctokit).toHaveBeenCalledWith('github.com', {
+        organizationId: ORG_ID,
+        accountId: 'github.com:42',
+      });
     });
 
     it('filters out pull requests', async () => {
@@ -105,7 +115,7 @@ describe('GitHubIssueServiceImpl', () => {
       const listForRepo = vi.fn().mockResolvedValue({ data: [restIssue, pr] });
       mockGetOctokit.mockResolvedValue(ok(makeOctokit({ listForRepo })));
 
-      const result = await issueService.listIssues(repository);
+      const result = await issueService.listIssues(repository, 30, authContext);
 
       expect(result).toEqual(ok([expectedIssue]));
     });
@@ -114,7 +124,7 @@ describe('GitHubIssueServiceImpl', () => {
       const listForRepo = vi.fn().mockRejectedValue(new Error('Network error'));
       mockGetOctokit.mockResolvedValue(ok(makeOctokit({ listForRepo })));
 
-      await expect(issueService.listIssues(repository)).resolves.toEqual(
+      await expect(issueService.listIssues(repository, 30, authContext)).resolves.toEqual(
         err({ type: 'host_unreachable', host: 'github.com', message: 'Network error' })
       );
     });
@@ -124,11 +134,15 @@ describe('GitHubIssueServiceImpl', () => {
       mockGetOctokit.mockResolvedValue(ok(makeOctokit({ listForRepo })));
 
       await expect(
-        issueService.listIssues({
-          ...repository,
-          host: 'ghe.example.com',
-          repositoryUrl: 'https://ghe.example.com/owner/repo',
-        })
+        issueService.listIssues(
+          {
+            ...repository,
+            host: 'ghe.example.com',
+            repositoryUrl: 'https://ghe.example.com/owner/repo',
+          },
+          30,
+          authContext
+        )
       ).resolves.toEqual(
         err({
           type: 'not_found_or_no_access',
@@ -143,11 +157,11 @@ describe('GitHubIssueServiceImpl', () => {
       const listForRepo = vi.fn().mockResolvedValue({ data: [] });
       mockGetOctokit.mockResolvedValue(ok(makeOctokit({ listForRepo })));
 
-      await issueService.listIssues(repository, 0);
+      await issueService.listIssues(repository, 0, authContext);
       expect(listForRepo).toHaveBeenCalledWith(expect.objectContaining({ per_page: 1 }));
 
       listForRepo.mockClear();
-      await issueService.listIssues(repository, 999);
+      await issueService.listIssues(repository, 999, authContext);
       expect(listForRepo).toHaveBeenCalledWith(expect.objectContaining({ per_page: 100 }));
     });
   });
@@ -157,7 +171,7 @@ describe('GitHubIssueServiceImpl', () => {
       const issuesAndPullRequests = vi.fn().mockResolvedValue({ data: { items: [restIssue] } });
       mockGetOctokit.mockResolvedValue(ok(makeOctokit({ issuesAndPullRequests })));
 
-      const result = await issueService.searchIssues(repository, 'bug fix', 15);
+      const result = await issueService.searchIssues(repository, 'bug fix', 15, authContext);
 
       expect(issuesAndPullRequests).toHaveBeenCalledWith({
         q: 'bug fix repo:owner/repo is:issue is:open',
@@ -172,17 +186,23 @@ describe('GitHubIssueServiceImpl', () => {
       const issuesAndPullRequests = vi.fn().mockResolvedValue({ data: { items: [] } });
       mockGetOctokit.mockResolvedValue(ok(makeOctokit({ issuesAndPullRequests })));
 
-      await issueService.searchIssues(repository, 'bug', 15, { accountId: 'github.com:42' });
+      await issueService.searchIssues(repository, 'bug', 15, {
+        organizationId: ORG_ID,
+        accountId: 'github.com:42',
+      });
 
-      expect(mockGetOctokit).toHaveBeenCalledWith('github.com', { accountId: 'github.com:42' });
+      expect(mockGetOctokit).toHaveBeenCalledWith('github.com', {
+        organizationId: ORG_ID,
+        accountId: 'github.com:42',
+      });
     });
 
     it('returns empty for blank search term', async () => {
       const issuesAndPullRequests = vi.fn();
       mockGetOctokit.mockResolvedValue(ok(makeOctokit({ issuesAndPullRequests })));
 
-      expect(await issueService.searchIssues(repository, '   ')).toEqual(ok([]));
-      expect(await issueService.searchIssues(repository, '')).toEqual(ok([]));
+      expect(await issueService.searchIssues(repository, '   ', 15, authContext)).toEqual(ok([]));
+      expect(await issueService.searchIssues(repository, '', 15, authContext)).toEqual(ok([]));
       expect(issuesAndPullRequests).not.toHaveBeenCalled();
     });
 
@@ -190,9 +210,9 @@ describe('GitHubIssueServiceImpl', () => {
       const issuesAndPullRequests = vi.fn().mockRejectedValue(new Error('API error'));
       mockGetOctokit.mockResolvedValue(ok(makeOctokit({ issuesAndPullRequests })));
 
-      await expect(issueService.searchIssues(repository, 'query')).resolves.toEqual(
-        err({ type: 'generic', message: 'API error' })
-      );
+      await expect(
+        issueService.searchIssues(repository, 'query', 15, authContext)
+      ).resolves.toEqual(err({ type: 'generic', message: 'API error' }));
     });
   });
 
@@ -201,7 +221,7 @@ describe('GitHubIssueServiceImpl', () => {
       const issuesGet = vi.fn().mockResolvedValue({ data: { ...restIssue, body: 'Issue body' } });
       mockGetOctokit.mockResolvedValue(ok(makeOctokit({ issuesGet })));
 
-      const result = await issueService.getIssue(repository, 42);
+      const result = await issueService.getIssue(repository, 42, authContext);
 
       expect(issuesGet).toHaveBeenCalledWith({
         owner: 'owner',
@@ -215,7 +235,7 @@ describe('GitHubIssueServiceImpl', () => {
       const issuesGet = vi.fn().mockRejectedValue(new Error('Not found'));
       mockGetOctokit.mockResolvedValue(ok(makeOctokit({ issuesGet })));
 
-      await expect(issueService.getIssue(repository, 99)).resolves.toEqual(
+      await expect(issueService.getIssue(repository, 99, authContext)).resolves.toEqual(
         err({ type: 'generic', message: 'Not found' })
       );
     });

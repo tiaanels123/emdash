@@ -3,6 +3,7 @@ import { accountController } from './core/account/controller';
 import { appController } from './core/app/controller';
 import { asanaController } from './core/asana/controller';
 import { automationsController } from './core/automations/controller';
+import { azureDevOpsController } from './core/azure-devops/controller';
 import { conversationController } from './core/conversations/controller';
 import { dependenciesController } from './core/dependencies/controller';
 import { editorBufferController } from './core/editor/controller';
@@ -17,6 +18,7 @@ import { jiraController } from './core/jira/controller';
 import { linearController } from './core/linear/controller';
 import { mcpController } from './core/mcp/controller';
 import { mondayController } from './core/monday/controller';
+import { organizationsController } from './core/organizations/controller';
 import { plainController } from './core/plain/controller';
 import { projectController } from './core/projects/controller';
 import { promptLibraryController } from './core/prompt-library/controller';
@@ -50,6 +52,7 @@ export const rpcRouter = createRPCRouter({
   pty: ptyController,
   resourceMonitor: resourceMonitorController,
   asana: asanaController,
+  azureDevops: azureDevOpsController,
   featurebase: featurebaseController,
   forgejo: forgejoController,
   github: githubController,
@@ -63,6 +66,7 @@ export const rpcRouter = createRPCRouter({
   promptLibrary: promptLibraryController,
   skills: skillsController,
   ssh: sshController,
+  organizations: organizationsController,
   projects: projectController,
   tasks: taskController,
   conversations: conversationController,

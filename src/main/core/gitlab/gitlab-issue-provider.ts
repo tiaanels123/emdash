@@ -6,6 +6,7 @@ import {
 import type { IssueProvider } from '@main/core/issues/issue-provider';
 import type { LinkedIssue } from '@shared/core/linked-issue';
 import { ISSUE_PROVIDER_CAPABILITIES, type IssueListResult } from '@shared/issue-providers';
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import { gitLabConnectionService, toGitLabErrorMessage } from './gitlab-connection-service';
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -63,6 +64,7 @@ function toIssue(raw: unknown, projectName: string | null): LinkedIssue | null {
 }
 
 async function listIssues(
+  organizationId: string,
   projectPath: string,
   remoteName: string | undefined,
   limit: number
@@ -71,6 +73,7 @@ async function listIssues(
 
   try {
     const { client, projectId, projectName } = await gitLabConnectionService.resolveProject(
+      organizationId,
       projectPath,
       remoteName
     );
@@ -99,6 +102,7 @@ async function listIssues(
 }
 
 async function searchIssues(
+  organizationId: string,
   projectPath: string,
   remoteName: string | undefined,
   searchTerm: string,
@@ -113,6 +117,7 @@ async function searchIssues(
 
   try {
     const { client, projectId, projectName } = await gitLabConnectionService.resolveProject(
+      organizationId,
       projectPath,
       remoteName
     );
@@ -146,7 +151,7 @@ export const gitlabIssueProvider: IssueProvider = {
   type: 'gitlab',
   capabilities: ISSUE_PROVIDER_CAPABILITIES.gitlab,
 
-  checkConnection: () => gitLabConnectionService.checkConnection(),
+  checkConnection: (organizationId) => gitLabConnectionService.checkConnection(organizationId),
 
   listIssues: async (opts) => {
     const projectPath = requireProjectPath(opts.projectPath);
@@ -154,7 +159,12 @@ export const gitlabIssueProvider: IssueProvider = {
       return { success: false, error: 'Project path is required.' };
     }
 
-    return listIssues(projectPath, opts.remote, opts.limit ?? 50);
+    return listIssues(
+      opts.organizationId ?? PERSONAL_ORGANIZATION_ID,
+      projectPath,
+      opts.remote,
+      opts.limit ?? 50
+    );
   },
 
   searchIssues: async (opts) => {
@@ -163,6 +173,12 @@ export const gitlabIssueProvider: IssueProvider = {
       return { success: false, error: 'Project path is required.' };
     }
 
-    return searchIssues(projectPath, opts.remote, opts.searchTerm, opts.limit ?? 20);
+    return searchIssues(
+      opts.organizationId ?? PERSONAL_ORGANIZATION_ID,
+      projectPath,
+      opts.remote,
+      opts.searchTerm,
+      opts.limit ?? 20
+    );
   },
 };

@@ -70,10 +70,11 @@ type PrKvSchema = {
   [key: string]: FullSyncCursor | IncrementalSyncCursor | string;
 };
 
-type PrSyncAuthContext = Pick<GitHubApiAuthContext, 'accountId'>;
+type PrSyncAuthContext = Pick<GitHubApiAuthContext, 'organizationId' | 'accountId'>;
 
-function authContextKey(authContext: PrSyncAuthContext = {}): string {
-  return authContext.accountId?.trim() || 'default';
+function authContextKey(authContext: PrSyncAuthContext): string {
+  const accountId = authContext.accountId?.trim() || 'default';
+  return `${authContext.organizationId}:${accountId}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -183,7 +184,7 @@ export class PrSyncEngine {
   constructor(
     private readonly getOctokit: (
       host: string,
-      context?: PrSyncAuthContext
+      context: PrSyncAuthContext
     ) => Promise<Result<Octokit, GitHubApiAuthError>>
   ) {}
 
@@ -193,7 +194,7 @@ export class PrSyncEngine {
    * Smart sync: resumes a full sync if one is incomplete, otherwise runs an
    * incremental sync. Deduplicated — no-op if a sync is already in-flight.
    */
-  sync(repositoryUrl: string, authContext: PrSyncAuthContext = {}): void {
+  sync(repositoryUrl: string, authContext: PrSyncAuthContext): void {
     const key = `sync:${repositoryUrl}:${authContextKey(authContext)}`;
     if (this._inflight.has(key)) {
       log.info('PrSyncEngine: sync already in flight, skipping', {
@@ -244,7 +245,7 @@ export class PrSyncEngine {
   }
 
   /** Cancel any in-flight sync, wipe both cursors, and start a fresh full sync. */
-  forceFullSync(repositoryUrl: string, authContext: PrSyncAuthContext = {}): void {
+  forceFullSync(repositoryUrl: string, authContext: PrSyncAuthContext): void {
     this.cancel(repositoryUrl);
     void Promise.all([
       this.kv.del(`fullsync:${repositoryUrl}`),
@@ -623,7 +624,7 @@ export class PrSyncEngine {
   async syncSingle(
     repositoryUrl: string,
     prNumber: number,
-    authContext: PrSyncAuthContext = {}
+    authContext: PrSyncAuthContext
   ): Promise<Result<PullRequest | null, PrSyncEngineError>> {
     const key = `single:${repositoryUrl}:${prNumber}:${authContextKey(authContext)}`;
     if (this._singleInflight.has(key)) {
@@ -712,7 +713,7 @@ export class PrSyncEngine {
   async syncChecks(
     pullRequestUrl: string,
     headRefOid: string,
-    authContext: PrSyncAuthContext = {}
+    authContext: PrSyncAuthContext
   ): Promise<Result<boolean, PrSyncEngineError>> {
     const key = `checks:${pullRequestUrl}:${headRefOid}:${authContextKey(authContext)}`;
     if (this._checksInflight.has(key)) {
@@ -1192,7 +1193,7 @@ export class PrSyncEngine {
       body?: string;
       draft: boolean;
     },
-    authContext: PrSyncAuthContext = {}
+    authContext: PrSyncAuthContext
   ): Promise<Result<{ url: string; number: number }, PrSyncEngineError>> {
     const repository = parseRepositoryRefResult(params.repositoryUrl);
     if (!repository.success) return err(repository.error);
@@ -1227,7 +1228,7 @@ export class PrSyncEngine {
     repositoryUrl: string,
     prNumber: number,
     options: PullRequestMergeOptions,
-    authContext: PrSyncAuthContext = {}
+    authContext: PrSyncAuthContext
   ): Promise<Result<{ sha: string | null; merged: boolean }, PrSyncEngineError>> {
     const repository = parseRepositoryRefResult(repositoryUrl);
     if (!repository.success) return err(repository.error);
@@ -1264,7 +1265,7 @@ export class PrSyncEngine {
   async markReadyForReview(
     repositoryUrl: string,
     prNumber: number,
-    authContext: PrSyncAuthContext = {}
+    authContext: PrSyncAuthContext
   ): Promise<Result<void, PrSyncEngineError>> {
     const repository = parseRepositoryRefResult(repositoryUrl);
     if (!repository.success) return err(repository.error);
@@ -1301,7 +1302,7 @@ export class PrSyncEngine {
   async getPullRequestComments(
     repositoryUrl: string,
     prNumber: number,
-    authContext: PrSyncAuthContext = {}
+    authContext: PrSyncAuthContext
   ): Promise<Result<PullRequestComment[], PrSyncEngineError>> {
     const repository = parseRepositoryRefResult(repositoryUrl);
     if (!repository.success) return err(repository.error);
@@ -1406,7 +1407,7 @@ export class PrSyncEngine {
   async getPullRequestFiles(
     repositoryUrl: string,
     prNumber: number,
-    authContext: PrSyncAuthContext = {}
+    authContext: PrSyncAuthContext
   ): Promise<Result<PullRequestFile[], PrSyncEngineError>> {
     const repository = parseRepositoryRefResult(repositoryUrl);
     if (!repository.success) return err(repository.error);

@@ -7,6 +7,7 @@ import {
   type IssueContextResult,
   type IssueListResult,
 } from '@shared/issue-providers';
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import { plainConnectionService, toPlainErrorMessage } from './plain-connection-service';
 
 type PlainThreadLike = {
@@ -50,8 +51,8 @@ function toIssue(thread: PlainThreadLike): LinkedIssue {
   };
 }
 
-async function listIssues(limit: number): Promise<IssueListResult> {
-  const client = await plainConnectionService.getClient();
+async function listIssues(organizationId: string, limit: number): Promise<IssueListResult> {
+  const client = await plainConnectionService.getClient(organizationId);
   if (!client) {
     return { success: false, error: 'Plain is not configured. Connect Plain in settings.' };
   }
@@ -77,13 +78,17 @@ async function listIssues(limit: number): Promise<IssueListResult> {
   }
 }
 
-async function searchIssues(searchTerm: string, limit: number): Promise<IssueListResult> {
+async function searchIssues(
+  organizationId: string,
+  searchTerm: string,
+  limit: number
+): Promise<IssueListResult> {
   const term = normalizeSearchTerm(searchTerm);
   if (!term || term.length < 2) {
     return { success: true, issues: [] };
   }
 
-  const client = await plainConnectionService.getClient();
+  const client = await plainConnectionService.getClient(organizationId);
   if (!client) {
     return { success: false, error: 'Plain is not configured. Connect Plain in settings.' };
   }
@@ -156,13 +161,16 @@ async function fetchThreadByIdentifier(
   return client.query.thread({ threadId: identifier });
 }
 
-async function getIssueContext(identifier: string): Promise<IssueContextResult> {
+async function getIssueContext(
+  organizationId: string,
+  identifier: string
+): Promise<IssueContextResult> {
   const term = normalizeSearchTerm(identifier);
   if (!term) {
     return { success: false, error: 'Plain thread identifier is required.' };
   }
 
-  const client = await plainConnectionService.getClient();
+  const client = await plainConnectionService.getClient(organizationId);
   if (!client) {
     return { success: false, error: 'Plain is not configured. Connect Plain in settings.' };
   }
@@ -218,11 +226,18 @@ export const plainIssueProvider: IssueProvider = {
   type: 'plain',
   capabilities: ISSUE_PROVIDER_CAPABILITIES.plain,
 
-  checkConnection: () => plainConnectionService.checkConnection(),
+  checkConnection: (organizationId) => plainConnectionService.checkConnection(organizationId),
 
-  listIssues: async (opts) => listIssues(opts.limit ?? 50),
+  listIssues: async (opts) =>
+    listIssues(opts.organizationId ?? PERSONAL_ORGANIZATION_ID, opts.limit ?? 50),
 
-  searchIssues: async (opts) => searchIssues(opts.searchTerm, opts.limit ?? 20),
+  searchIssues: async (opts) =>
+    searchIssues(
+      opts.organizationId ?? PERSONAL_ORGANIZATION_ID,
+      opts.searchTerm,
+      opts.limit ?? 20
+    ),
 
-  getIssueContext: async (opts) => getIssueContext(opts.identifier),
+  getIssueContext: async (opts) =>
+    getIssueContext(opts.organizationId ?? PERSONAL_ORGANIZATION_ID, opts.identifier),
 };

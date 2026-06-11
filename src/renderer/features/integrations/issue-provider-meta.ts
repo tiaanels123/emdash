@@ -11,6 +11,7 @@ export const ISSUE_PROVIDER_ORDER: IssueProviderType[] = [
   'forgejo',
   'featurebase',
   'plain',
+  'azuredevops',
 ];
 
 export const ISSUE_PROVIDER_META: Record<
@@ -29,4 +30,5 @@ export const ISSUE_PROVIDER_META: Record<
   forgejo: { displayName: 'Forgejo' },
   featurebase: { displayName: 'Featurebase' },
   plain: { displayName: 'Plain' },
+  azuredevops: { displayName: 'Azure DevOps' },
 };

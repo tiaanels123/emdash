@@ -6,6 +6,7 @@ import {
   RateLimitError,
 } from '@team-plain/graphql';
 import { encryptedAppSecretsStore } from '@main/core/secrets/encrypted-app-secrets-store';
+import { orgScopedSecretKey } from '@main/core/secrets/org-scoped-secret-key';
 import { log } from '@main/lib/logger';
 import { ISSUE_PROVIDER_CAPABILITIES, type ConnectionStatus } from '@shared/issue-providers';
 
@@ -37,20 +38,30 @@ function isNotConfigured(error: unknown): boolean {
 export class PlainConnectionService {
   private readonly PLAIN_TOKEN_SECRET_KEY = 'emdash-plain-token';
 
-  private cachedToken: string | null | undefined = undefined;
-  private client: PlainClient | null = null;
-  private clientToken: string | null = null;
+  // Caches are keyed by organization id so each organization keeps its own
+  // credential. `cachedTokens` short-circuits secret reads (absence = unloaded,
+  // null = loaded-but-absent); `clients` memoizes one PlainClient per org and
+  // is invalidated when that org's token rotates.
+  private readonly cachedTokens = new Map<string, string | null>();
+  private readonly clients = new Map<string, { client: PlainClient; token: string }>();
 
-  async saveToken(token: string): Promise<{ success: boolean; error?: string }> {
+  private secretKey(organizationId: string): string {
+    return orgScopedSecretKey(organizationId, this.PLAIN_TOKEN_SECRET_KEY);
+  }
+
+  async saveToken(
+    organizationId: string,
+    token: string
+  ): Promise<{ success: boolean; error?: string }> {
     const clean = token.trim();
     if (!clean) {
       return { success: false, error: 'Plain API key cannot be empty.' };
     }
 
     try {
-      const client = this.getClientForToken(clean);
+      const client = this.getClientForToken(organizationId, clean);
       await this.validateToken(client);
-      await this.storeToken(clean);
+      await this.storeToken(organizationId, clean);
       return { success: true };
     } catch (error) {
       return {
@@ -60,12 +71,11 @@ export class PlainConnectionService {
     }
   }
 
-  async clearToken(): Promise<{ success: boolean; error?: string }> {
+  async clearToken(organizationId: string): Promise<{ success: boolean; error?: string }> {
     try {
-      await encryptedAppSecretsStore.deleteSecret(this.PLAIN_TOKEN_SECRET_KEY);
-      this.cachedToken = null;
-      this.client = null;
-      this.clientToken = null;
+      await encryptedAppSecretsStore.deleteSecret(this.secretKey(organizationId));
+      this.cachedTokens.set(organizationId, null);
+      this.clients.delete(organizationId);
       return { success: true };
     } catch (error) {
       return {
@@ -75,9 +85,9 @@ export class PlainConnectionService {
     }
   }
 
-  async checkConnection(): Promise<ConnectionStatus> {
+  async checkConnection(organizationId: string): Promise<ConnectionStatus> {
     try {
-      const token = await this.getStoredToken();
+      const token = await this.getStoredToken(organizationId);
       if (!token) {
         return {
           connected: false,
@@ -85,7 +95,7 @@ export class PlainConnectionService {
         };
       }
 
-      const client = this.getClientForToken(token);
+      const client = this.getClientForToken(organizationId, token);
       await this.validateToken(client);
 
       return {
@@ -108,36 +118,40 @@ export class PlainConnectionService {
     }
   }
 
-  async getClient(): Promise<PlainClient | null> {
-    const token = await this.getStoredToken();
+  async getClient(organizationId: string): Promise<PlainClient | null> {
+    const token = await this.getStoredToken(organizationId);
     if (!token) {
       return null;
     }
 
-    return this.getClientForToken(token);
+    return this.getClientForToken(organizationId, token);
   }
 
-  private getClientForToken(token: string): PlainClient {
-    if (!this.client || this.clientToken !== token) {
-      this.client = new PlainClient({ apiKey: token });
-      this.clientToken = token;
+  private getClientForToken(organizationId: string, token: string): PlainClient {
+    const cached = this.clients.get(organizationId);
+    if (cached && cached.token === token) {
+      return cached.client;
     }
-    return this.client;
+    const client = new PlainClient({ apiKey: token });
+    this.clients.set(organizationId, { client, token });
+    return client;
   }
 
-  private async storeToken(token: string): Promise<void> {
-    await encryptedAppSecretsStore.setSecret(this.PLAIN_TOKEN_SECRET_KEY, token);
-    this.cachedToken = token;
+  private async storeToken(organizationId: string, token: string): Promise<void> {
+    await encryptedAppSecretsStore.setSecret(this.secretKey(organizationId), token);
+    this.cachedTokens.set(organizationId, token);
   }
 
-  private async getStoredToken(): Promise<string | null> {
-    if (this.cachedToken) {
-      return this.cachedToken;
+  private async getStoredToken(organizationId: string): Promise<string | null> {
+    const cached = this.cachedTokens.get(organizationId);
+    if (cached) {
+      return cached;
     }
 
     try {
-      this.cachedToken = await encryptedAppSecretsStore.getSecret(this.PLAIN_TOKEN_SECRET_KEY);
-      return this.cachedToken;
+      const token = await encryptedAppSecretsStore.getSecret(this.secretKey(organizationId));
+      this.cachedTokens.set(organizationId, token);
+      return token;
     } catch (error) {
       log.error('Failed to read Plain token from secure storage:', error);
       return null;

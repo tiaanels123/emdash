@@ -1,9 +1,11 @@
 import { Folder, Github } from 'lucide-react';
+import { observer } from 'mobx-react-lite';
 import { useMemo, useState } from 'react';
 import {
   GitHubAccountSelectItem,
   GitHubAccountSelectLabel,
 } from '@renderer/features/projects/components/github-account-select';
+import { asMounted, getProjectStore } from '@renderer/features/projects/stores/project-selectors';
 import { ProjectBranchSelector } from '@renderer/lib/components/project-branch-selector';
 import {
   RemoteSelectContent,
@@ -38,7 +40,7 @@ type BaseProjectSettingsSectionProps = {
   update: FormUpdate;
 };
 
-export function BaseProjectSettingsSection({
+export const BaseProjectSettingsSection = observer(function BaseProjectSettingsSection({
   projectId,
   form,
   defaultWorktreeDirectory,
@@ -51,7 +53,10 @@ export function BaseProjectSettingsSection({
   const pushRemoteValue = form.pushRemote || SAME_AS_BASE_REMOTE;
   const selectedBaseRemote = remotes.find((remote) => remote.name === baseRemoteValue);
   const selectedPushRemote = remotes.find((remote) => remote.name === pushRemoteValue);
-  const { data: githubAccounts = [] } = useGitHubAccounts();
+  // Scope the account picker to the *project's* organization so a selection made
+  // while a different org is active can never persist a foreign account id.
+  const projectOrganizationId = asMounted(getProjectStore(projectId))?.data.organizationId;
+  const { data: githubAccounts = [] } = useGitHubAccounts(projectOrganizationId);
   const githubAccountSelect = useMemo(
     () => createProjectGitHubAccountSelectState(form.githubAccountId, githubAccounts),
     [form.githubAccountId, githubAccounts]
@@ -241,4 +246,4 @@ export function BaseProjectSettingsSection({
       </Field>
     </>
   );
-}
+});

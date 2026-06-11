@@ -1,4 +1,5 @@
 import type { GitHubApiAuthContext } from '@main/core/github/services/github-api-auth-service';
+import { getProjectOrganizationId } from '@main/core/projects/operations/getProjects';
 import { projectManager } from '@main/core/projects/project-manager';
 import { log } from '@main/lib/logger';
 import type { Result } from '@shared/lib/result';
@@ -12,6 +13,7 @@ export type { ProjectGitHubAuthContextError } from './project-github-auth-contex
 const projectGitHubAuthContextResolver = new ProjectGitHubAuthContextResolver({
   projects: projectManager,
   logger: log,
+  getOrganizationId: getProjectOrganizationId,
 });
 
 export function resolveProjectGitHubAuthContext(

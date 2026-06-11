@@ -1,6 +1,7 @@
 import { Clock, FolderInput, Library, MessageSquareShare, Settings } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import React from 'react';
+import { OrganizationSwitcher } from '@renderer/features/organizations/components/OrganizationSwitcher';
 import {
   isCurrentView,
   useNavigate,
@@ -52,6 +53,7 @@ export const LeftSidebar: React.FC = observer(function LeftSidebar() {
         </div>
       )}
       <SidebarSpace />
+      <OrganizationSwitcher />
       <SidebarContainer className="min-h-0 w-full flex-1 border-r-0">
         <SidebarContent className="flex flex-col">
           <SidebarPinnedTaskList />

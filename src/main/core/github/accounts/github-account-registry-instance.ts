@@ -12,26 +12,41 @@ type GitHubAccountsKVSchema = {
   removedCliAccounts: GitHubRemovedCliAccount[];
 };
 
-const githubAccountsKV = new KV<GitHubAccountsKVSchema>('githubAccounts');
+// Account metadata is partitioned per organization: each org gets its own KV
+// namespace (`githubAccounts:<orgId>`), so connecting an account in one
+// organization never surfaces it in another. KV instances are memoized per org.
+const kvByOrg = new Map<string, KV<GitHubAccountsKVSchema>>();
+
+function githubAccountsKV(organizationId: string): KV<GitHubAccountsKVSchema> {
+  let kv = kvByOrg.get(organizationId);
+  if (!kv) {
+    kv = new KV<GitHubAccountsKVSchema>(`githubAccounts:${organizationId}`);
+    kvByOrg.set(organizationId, kv);
+  }
+  return kv;
+}
 
 const metadataStore = {
-  getAccounts(): Promise<GitHubAccount[] | null> {
-    return githubAccountsKV.get('accounts');
+  getAccounts(organizationId: string): Promise<GitHubAccount[] | null> {
+    return githubAccountsKV(organizationId).get('accounts');
   },
-  setAccounts(accounts: GitHubAccount[]): Promise<void> {
-    return githubAccountsKV.setOrThrow('accounts', accounts);
+  setAccounts(organizationId: string, accounts: GitHubAccount[]): Promise<void> {
+    return githubAccountsKV(organizationId).setOrThrow('accounts', accounts);
   },
-  getDefaultAccountId(): Promise<string | null> {
-    return githubAccountsKV.get('defaultAccountId');
+  getDefaultAccountId(organizationId: string): Promise<string | null> {
+    return githubAccountsKV(organizationId).get('defaultAccountId');
   },
-  setDefaultAccountId(accountId: string | null): Promise<void> {
-    return githubAccountsKV.setOrThrow('defaultAccountId', accountId);
+  setDefaultAccountId(organizationId: string, accountId: string | null): Promise<void> {
+    return githubAccountsKV(organizationId).setOrThrow('defaultAccountId', accountId);
   },
-  getRemovedCliAccounts(): Promise<GitHubRemovedCliAccount[] | null> {
-    return githubAccountsKV.get('removedCliAccounts');
+  getRemovedCliAccounts(organizationId: string): Promise<GitHubRemovedCliAccount[] | null> {
+    return githubAccountsKV(organizationId).get('removedCliAccounts');
   },
-  setRemovedCliAccounts(accounts: GitHubRemovedCliAccount[]): Promise<void> {
-    return githubAccountsKV.setOrThrow('removedCliAccounts', accounts);
+  setRemovedCliAccounts(
+    organizationId: string,
+    accounts: GitHubRemovedCliAccount[]
+  ): Promise<void> {
+    return githubAccountsKV(organizationId).setOrThrow('removedCliAccounts', accounts);
   },
 };
 

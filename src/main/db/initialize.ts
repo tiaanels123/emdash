@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type BetterSqlite3 from 'better-sqlite3';
+import { ensureDefaultOrganization } from '@main/db/org-data-migration';
 import journal from '@root/drizzle/meta/_journal.json';
 
 // Vite bundles all migration SQL files at build time — no runtime path resolution needed.
@@ -140,6 +141,7 @@ export async function initializeDatabase(
   // This keeps the module importable in non-Electron environments (Vitest).
   const conn = connection ?? (await import('./client')).sqlite;
   runBundledMigrations(conn);
+  ensureDefaultOrganization(conn);
   ensureSearchIndex(conn);
   ensureFileIndex(conn);
   return conn;

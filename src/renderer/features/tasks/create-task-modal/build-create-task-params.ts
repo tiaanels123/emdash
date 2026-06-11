@@ -89,6 +89,8 @@ export function buildInitialConversation(
     title: nextDefaultConversationTitle(provider, []),
     initialPrompt: buildFinalPrompt(state.issueContext, state.prompt),
     autoApprove: getAutoApproveDefault(provider),
+    // Effort is Claude-Code-specific; only thread it through for that provider.
+    ...(provider === 'claude' && state.effort ? { effort: state.effort } : {}),
   };
 }
 

@@ -184,8 +184,9 @@ Shared IPC primitives, provider metadata, events, MCP types, skills types, and
 domain types live under `src/shared/`.
 
 Major main-process domains live under `src/main/core/`: account, agent hooks,
-app, conversations, dependencies, editor, filesystem, Git, GitHub, GitLab, issues,
-Jira, Linear, MCP, projects, prompt library, PTY, pull requests, repository,
+app, Azure DevOps, conversations, dependencies, editor, filesystem, Git, GitHub,
+GitLab, issues, Jira, Linear, MCP, projects, prompt library, PTY, pull requests,
+repository,
 resource monitor, search, settings, skills, SSH, tasks, telemetry, terminals,
 updates, view state, and workspaces. Stateful main-process concerns use singleton
 services; expected failures should use the `Result<T, E>` pattern from

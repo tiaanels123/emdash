@@ -45,6 +45,7 @@ export class ProjectGitHubAuthContextResolver {
     private readonly deps: {
       projects: ProjectLookup;
       logger: WarningLogger;
+      getOrganizationId: (projectId: string) => Promise<string>;
     }
   ) {}
 
@@ -61,6 +62,7 @@ export class ProjectGitHubAuthContextResolver {
     }
 
     try {
+      const organizationId = await this.deps.getOrganizationId(projectId);
       const settings = await project.settings.get();
       if (!Object.hasOwn(settings, 'githubAccountId')) {
         return err({
@@ -86,7 +88,7 @@ export class ProjectGitHubAuthContextResolver {
           message: 'No GitHub account is configured for this project.',
         });
       }
-      return ok({ accountId });
+      return ok({ organizationId, accountId });
     } catch (error) {
       const message = errorMessage(error);
       this.deps.logger.warn('Failed to resolve project GitHub account selection', {

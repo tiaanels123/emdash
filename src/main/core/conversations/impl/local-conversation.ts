@@ -8,6 +8,7 @@ import { resolveAgentSessionCommandArgs } from '@main/core/conversations/resolve
 import type { ConversationProvider } from '@main/core/conversations/types';
 import type { IExecutionContext } from '@main/core/execution-context/types';
 import { LocalFileSystem } from '@main/core/fs/impl/local-fs';
+import { getProjectOrganizationId } from '@main/core/projects/operations/getProjects';
 import { spawnLocalPty } from '@main/core/pty/local-pty';
 import type { Pty } from '@main/core/pty/pty';
 import { buildAgentEnv } from '@main/core/pty/pty-env';
@@ -29,7 +30,7 @@ import { buildAgentSessionCommand } from './agent-command';
 import { syncGrokThemeWithAppTheme } from './grok-theme-config';
 import { createInitialPromptDelivery } from './initial-prompt-delivery';
 import { scheduleInitialPromptInjection } from './keystroke-injection';
-import { resolveProviderEnv } from './provider-env';
+import { effortSessionArgs, resolveProviderEnv } from './provider-env';
 
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
@@ -125,7 +126,11 @@ export class LocalConversationProvider implements ConversationProvider {
       });
       const hooksAvailable = await this.prepareHookConfig(conversation.providerId);
 
-      const providerConfig = await providerOverrideSettings.getItem(conversation.providerId);
+      const organizationId = await getProjectOrganizationId(conversation.projectId);
+      const providerConfig = await providerOverrideSettings.getItem(
+        organizationId,
+        conversation.providerId
+      );
       const providerDef = getProvider(conversation.providerId);
       const agentSession = resolveAgentSessionCommandArgs(conversation, isResuming);
       const initialPromptDelivery = createInitialPromptDelivery({
@@ -140,6 +145,7 @@ export class LocalConversationProvider implements ConversationProvider {
         providerConfig,
         autoApprove: conversation.autoApprove,
         extraInitialArgs: initialPromptDelivery.argvAddition(),
+        extraSessionArgs: effortSessionArgs(conversation.effort),
         initialPrompt,
         sessionId: agentSession.sessionId,
         providerSessionId: conversation.providerSessionId,
@@ -148,6 +154,7 @@ export class LocalConversationProvider implements ConversationProvider {
       const providerEnv = resolveProviderEnv(providerConfig, {
         providerId: conversation.providerId,
         autoApprove: conversation.autoApprove,
+        effort: conversation.effort,
       });
       if (conversation.providerId === 'grok') {
         await syncGrokThemeWithAppTheme({ env: providerEnv });

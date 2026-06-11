@@ -3,17 +3,19 @@
 ## Main Files
 
 - `src/main/core/mcp/services/McpService.ts`
+- `src/main/core/mcp/services/mcp-store.ts` — org-scoped `mcp_servers` persistence and provenance
 - `src/main/core/mcp/utils/` — adapters, catalog, config IO, config paths, conversion
 - `src/main/core/mcp/controller.ts`
 - `src/shared/mcp/`
-- `src/renderer/components/mcp/`
-- `src/renderer/views/mcp-view.tsx`
+- `src/renderer/features/mcp/`
 
 ## Current Behavior
 
-- MCP server configs are read, adapted, merged, and written across supported agent ecosystems
+- MCP servers are scoped per organization: the `mcp_servers` table is the source of truth, keyed by `organizationId`
+- the active organization's servers are materialized onto each agent's on-disk config (per the server's provider selection); switching organizations re-materializes via `rpc.mcp.materialize`
+- per-agent provenance tracks emdash-managed servers so re-materialization strips only those and never clobbers servers the user added by hand
 - provider-specific config formats are handled through adapters in `src/main/core/mcp/utils/`
-- the renderer MCP UI manages installed servers and catalog entries
+- the renderer MCP UI manages the active organization's installed servers and catalog entries
 
 ## Important Constraint
 

@@ -26,7 +26,7 @@ export class GitHubApiAuthErrorException extends Error {
 
 export async function getOctokit(
   host: string,
-  context: GitHubApiAuthContext = {}
+  context: GitHubApiAuthContext
 ): Promise<Result<Octokit, GitHubApiAuthError>> {
   const normalizedHost = normalizeRepositoryHost(host);
   const token = await githubApiAuthService.getToken(normalizedHost, context);

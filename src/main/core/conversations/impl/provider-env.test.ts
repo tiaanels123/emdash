@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveProviderEnv } from './provider-env';
+import { effortSessionArgs, resolveProviderEnv } from './provider-env';
 
 describe('resolveProviderEnv', () => {
   it('returns valid provider environment variables', () => {
@@ -62,5 +62,28 @@ describe('resolveProviderEnv', () => {
     expect(
       resolveProviderEnv(undefined, { providerId: 'claude', autoApprove: true })
     ).toBeUndefined();
+  });
+
+  it('injects CLAUDE_CODE_EFFORT_LEVEL for a standard effort level', () => {
+    expect(resolveProviderEnv(undefined, { providerId: 'claude', effort: 'high' })).toEqual({
+      CLAUDE_CODE_EFFORT_LEVEL: 'high',
+    });
+  });
+
+  it('does not set the effort env var for ultracode (applied via a CLI arg instead)', () => {
+    expect(
+      resolveProviderEnv(undefined, { providerId: 'claude', effort: 'ultracode' })
+    ).toBeUndefined();
+  });
+});
+
+describe('effortSessionArgs', () => {
+  it('returns the ultracode --settings arg for ultracode', () => {
+    expect(effortSessionArgs('ultracode')).toEqual(['--settings', '{"ultracode":true}']);
+  });
+
+  it('returns no args for standard levels or when unset', () => {
+    expect(effortSessionArgs('high')).toEqual([]);
+    expect(effortSessionArgs(undefined)).toEqual([]);
   });
 });

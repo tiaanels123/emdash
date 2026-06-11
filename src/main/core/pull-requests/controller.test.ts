@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { err, ok } from '@shared/lib/result';
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import { pullRequestController } from './controller';
 import { prSyncEngine } from './pr-sync-engine';
 import {
@@ -59,7 +60,9 @@ const mockPrSyncEngine = vi.mocked(prSyncEngine);
 const mockResolveProjectPullRequestContext = vi.mocked(resolveProjectPullRequestContext);
 const mockResolveProjectPullRequestAuthContext = vi.mocked(resolveProjectPullRequestAuthContext);
 
-const selectedAuthContext = { accountId: 'github.com:42' };
+const ORG_ID = PERSONAL_ORGANIZATION_ID;
+
+const selectedAuthContext = { organizationId: ORG_ID, accountId: 'github.com:42' };
 
 function mockProjectGithubContext(
   overrides: Partial<{
@@ -67,7 +70,7 @@ function mockProjectGithubContext(
     repositoryUrl: string;
     host: string;
     nameWithOwner: string;
-    authContext: { accountId?: string };
+    authContext: { organizationId: string; accountId?: string };
   }> = {}
 ) {
   mockResolveProjectPullRequestContext.mockResolvedValue(

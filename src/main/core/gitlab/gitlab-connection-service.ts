@@ -6,6 +6,7 @@ import {
   normalizeHostedInstanceUrl,
 } from '@main/core/issues/helpers/hosted-instance';
 import { encryptedAppSecretsStore } from '@main/core/secrets/encrypted-app-secrets-store';
+import { orgScopedSecretKey } from '@main/core/secrets/org-scoped-secret-key';
 import { KV } from '@main/db/kv';
 import { ISSUE_PROVIDER_CAPABILITIES, type ConnectionStatus } from '@shared/issue-providers';
 
@@ -17,7 +18,12 @@ interface GitLabKVSchema extends Record<string, unknown> {
   connection: GitLabConnectionConfig;
 }
 
-const gitlabKV = new KV<GitLabKVSchema>('gitlab');
+// The KV store is namespaced per organization so each organization keeps its own
+// connection config (instance URL). Tokens live in the encrypted secrets store
+// under an org-scoped key.
+function gitlabKVFor(organizationId: string): KV<GitLabKVSchema> {
+  return new KV<GitLabKVSchema>(`gitlab:${organizationId}`);
+}
 
 const NOT_CONFIGURED_ERROR = 'GitLab is not configured. Connect GitLab in settings.';
 
@@ -57,10 +63,18 @@ function isNotConfigured(error: unknown): boolean {
 export class GitLabConnectionService {
   private readonly GITLAB_TOKEN_SECRET_KEY = 'emdash-gitlab-token';
 
-  private client: Gitlab | null = null;
-  private clientKey: string | null = null;
+  // Cached clients are keyed by organization id so each organization keeps its
+  // own GitLab client; each entry memoizes the client alongside the
+  // `${instanceUrl}|${token}` key it was built from so it can be invalidated
+  // when that org's credentials rotate.
+  private readonly clients = new Map<string, { client: Gitlab; key: string }>();
+
+  private secretKey(organizationId: string): string {
+    return orgScopedSecretKey(organizationId, this.GITLAB_TOKEN_SECRET_KEY);
+  }
 
   async saveCredentials(
+    organizationId: string,
     instanceUrl: string,
     token: string
   ): Promise<{ success: boolean; username?: string; displayName?: string; error?: string }> {
@@ -75,11 +89,11 @@ export class GitLabConnectionService {
     }
 
     try {
-      const client = this.getClientForCredentials(normalizedUrl, cleanToken);
+      const client = this.getClientForCredentials(organizationId, normalizedUrl, cleanToken);
       const user = (await client.Users.showCurrentUser()) as Record<string, unknown>;
 
-      await encryptedAppSecretsStore.setSecret(this.GITLAB_TOKEN_SECRET_KEY, cleanToken);
-      await this.writeConnection({ instanceUrl: normalizedUrl });
+      await encryptedAppSecretsStore.setSecret(this.secretKey(organizationId), cleanToken);
+      await this.writeConnection(organizationId, { instanceUrl: normalizedUrl });
 
       const username = this.readString(user.username) ?? undefined;
       const displayName = this.readString(user.name) ?? username;
@@ -93,13 +107,12 @@ export class GitLabConnectionService {
     }
   }
 
-  async clearCredentials(): Promise<{ success: boolean; error?: string }> {
+  async clearCredentials(organizationId: string): Promise<{ success: boolean; error?: string }> {
     try {
-      await encryptedAppSecretsStore.deleteSecret(this.GITLAB_TOKEN_SECRET_KEY);
-      await gitlabKV.del('connection');
+      await encryptedAppSecretsStore.deleteSecret(this.secretKey(organizationId));
+      await gitlabKVFor(organizationId).del('connection');
 
-      this.client = null;
-      this.clientKey = null;
+      this.clients.delete(organizationId);
 
       return { success: true };
     } catch (error) {
@@ -110,9 +123,9 @@ export class GitLabConnectionService {
     }
   }
 
-  async checkConnection(): Promise<ConnectionStatus> {
+  async checkConnection(organizationId: string): Promise<ConnectionStatus> {
     try {
-      const { client } = await this.requireAuth();
+      const { client } = await this.requireAuth(organizationId);
       const user = (await client.Users.showCurrentUser()) as Record<string, unknown>;
 
       const username = this.readString(user.username) ?? undefined;
@@ -139,9 +152,9 @@ export class GitLabConnectionService {
     }
   }
 
-  async getClient(): Promise<Gitlab | null> {
+  async getClient(organizationId: string): Promise<Gitlab | null> {
     try {
-      const { client } = await this.requireAuth();
+      const { client } = await this.requireAuth(organizationId);
       return client;
     } catch (error) {
       if (isNotConfigured(error)) {
@@ -152,10 +165,11 @@ export class GitLabConnectionService {
   }
 
   async resolveProject(
+    organizationId: string,
     projectPath: string,
     remoteName?: string
   ): Promise<{ client: Gitlab; projectId: number; projectName: string | null }> {
-    const { instanceUrl, client } = await this.requireAuth();
+    const { instanceUrl, client } = await this.requireAuth(organizationId);
 
     try {
       const remote = await resolvePreferredRemote(projectPath, remoteName);
@@ -182,39 +196,49 @@ export class GitLabConnectionService {
     }
   }
 
-  private async requireAuth(): Promise<{ instanceUrl: string; client: Gitlab }> {
-    const connection = await this.readConnection();
+  private async requireAuth(
+    organizationId: string
+  ): Promise<{ instanceUrl: string; client: Gitlab }> {
+    const connection = await this.readConnection(organizationId);
     if (!connection) {
       throw new Error(NOT_CONFIGURED_ERROR);
     }
 
-    const token = await encryptedAppSecretsStore.getSecret(this.GITLAB_TOKEN_SECRET_KEY);
+    const token = await encryptedAppSecretsStore.getSecret(this.secretKey(organizationId));
     if (!token) {
       throw new Error(NOT_CONFIGURED_ERROR);
     }
 
     return {
       instanceUrl: connection.instanceUrl,
-      client: this.getClientForCredentials(connection.instanceUrl, token),
+      client: this.getClientForCredentials(organizationId, connection.instanceUrl, token),
     };
   }
 
-  private getClientForCredentials(instanceUrl: string, token: string): Gitlab {
+  private getClientForCredentials(
+    organizationId: string,
+    instanceUrl: string,
+    token: string
+  ): Gitlab {
     const key = `${instanceUrl}|${token}`;
-    if (!this.client || this.clientKey !== key) {
-      this.client = new Gitlab({ host: instanceUrl, token });
-      this.clientKey = key;
+    const cached = this.clients.get(organizationId);
+    if (cached && cached.key === key) {
+      return cached.client;
     }
-
-    return this.client;
+    const client = new Gitlab({ host: instanceUrl, token });
+    this.clients.set(organizationId, { client, key });
+    return client;
   }
 
-  private async writeConnection(connection: GitLabConnectionConfig): Promise<void> {
-    await gitlabKV.set('connection', connection);
+  private async writeConnection(
+    organizationId: string,
+    connection: GitLabConnectionConfig
+  ): Promise<void> {
+    await gitlabKVFor(organizationId).set('connection', connection);
   }
 
-  private async readConnection(): Promise<GitLabConnectionConfig | null> {
-    const connection = await gitlabKV.get('connection');
+  private async readConnection(organizationId: string): Promise<GitLabConnectionConfig | null> {
+    const connection = await gitlabKVFor(organizationId).get('connection');
     const instanceUrl = this.readString(connection?.instanceUrl);
     if (!instanceUrl) return null;
     return { instanceUrl };

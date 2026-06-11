@@ -1,7 +1,7 @@
 import { createRPCController } from '@shared/lib/ipc/rpc';
 import { createProject, inspectProjectPath } from './operations/createProject';
 import { deleteProject } from './operations/deleteProject';
-import { getProjects } from './operations/getProjects';
+import { getProjects, listProjectsForOrganization } from './operations/getProjects';
 import { openProject } from './operations/openProject';
 import { updateProjectConnection } from './operations/updateProjectConnection';
 import { countProjectsUsingGithubAccount } from './settings/count-projects-using-github-account';
@@ -11,6 +11,7 @@ export const projectController = createRPCController({
   createProject,
   inspectProjectPath,
   getProjects,
+  listProjectsForOrganization,
   deleteProject,
   getProjectSettingsPage: (projectId: string) =>
     projectSettingsService.getProjectSettingsPage(projectId),

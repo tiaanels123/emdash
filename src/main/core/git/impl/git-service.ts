@@ -46,6 +46,7 @@ import type { WorkspaceGitHooks } from '../workspace-git-provider';
 import { CatFileBatch } from './cat-file-batch';
 import { remoteNameForRepositoryUrl } from './git-repo-utils';
 import {
+  bareRefName,
   computeBaseRef,
   mapStatus,
   MAX_DIFF_CONTENT_BYTES,
@@ -1652,12 +1653,31 @@ export class GitService implements GitProvider, IDisposable {
       remoteName = remotes.includes('origin') ? 'origin' : remotes[0];
     } catch {}
 
+    // Prefer the remote's recorded default branch (refs/remotes/<remote>/HEAD, populated by
+    // clone/fetch) as the base ref. Without this, a project added while checked out on a
+    // feature branch like "hotfix/1204-foo" would adopt that branch as its base — and
+    // computeBaseRef would then misread the "hotfix/" prefix as a remote name.
     let branch: string | undefined;
-    try {
-      const { stdout } = await this.ctx.exec('git', ['branch', '--show-current']);
-      branch = stdout.trim() || undefined;
-    } catch {}
+    if (remoteName) {
+      try {
+        const { stdout } = await this.ctx.exec('git', [
+          'symbolic-ref',
+          `refs/remotes/${remoteName}/HEAD`,
+          '--short',
+        ]);
+        branch = bareRefName(stdout.trim()) || undefined;
+      } catch {}
+    }
 
+    // Fall back to the currently checked-out branch when the remote HEAD is unknown.
+    if (!branch) {
+      try {
+        const { stdout } = await this.ctx.exec('git', ['branch', '--show-current']);
+        branch = stdout.trim() || undefined;
+      } catch {}
+    }
+
+    // Last resort: ask the remote directly (requires a network call).
     if (!branch && remoteName) {
       try {
         const { stdout } = await this.ctx.exec('git', ['remote', 'show', remoteName]);

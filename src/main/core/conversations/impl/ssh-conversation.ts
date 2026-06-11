@@ -5,6 +5,7 @@ import { resolveAgentSessionCommandArgs } from '@main/core/conversations/resolve
 import type { ConversationProvider } from '@main/core/conversations/types';
 import type { IExecutionContext } from '@main/core/execution-context/types';
 import { SshFileSystem } from '@main/core/fs/impl/ssh-fs';
+import { getProjectOrganizationId } from '@main/core/projects/operations/getProjects';
 import type { Pty } from '@main/core/pty/pty';
 import { ptySessionRegistry } from '@main/core/pty/pty-session-registry';
 import { resolveSshCommand } from '@main/core/pty/spawn-utils';
@@ -22,7 +23,7 @@ import { makePtySessionId } from '@shared/core/pty/ptySessionId';
 import { buildAgentSessionCommand } from './agent-command';
 import { createInitialPromptDelivery } from './initial-prompt-delivery';
 import { scheduleInitialPromptInjection } from './keystroke-injection';
-import { resolveProviderEnv } from './provider-env';
+import { effortSessionArgs, resolveProviderEnv } from './provider-env';
 
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
@@ -115,7 +116,11 @@ export class SshConversationProvider implements ConversationProvider {
         force: conversation.autoApprove === true,
       });
 
-      const providerConfig = await providerOverrideSettings.getItem(conversation.providerId);
+      const organizationId = await getProjectOrganizationId(conversation.projectId);
+      const providerConfig = await providerOverrideSettings.getItem(
+        organizationId,
+        conversation.providerId
+      );
       const agentSession = resolveAgentSessionCommandArgs(conversation, isResuming, {
         requireProviderSessionId: false,
       });
@@ -131,6 +136,7 @@ export class SshConversationProvider implements ConversationProvider {
         providerConfig,
         autoApprove: conversation.autoApprove,
         extraInitialArgs: initialPromptDelivery.argvAddition(),
+        extraSessionArgs: effortSessionArgs(conversation.effort),
         initialPrompt,
         sessionId: agentSession.sessionId,
         providerSessionId: conversation.providerSessionId,
@@ -139,6 +145,7 @@ export class SshConversationProvider implements ConversationProvider {
       const providerEnv = resolveProviderEnv(providerConfig, {
         providerId: conversation.providerId,
         autoApprove: conversation.autoApprove,
+        effort: conversation.effort,
       });
 
       const tmuxSessionName = this.tmux ? makeTmuxSessionName(sessionId) : undefined;
