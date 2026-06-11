@@ -133,6 +133,9 @@ const ActiveTaskTitlebar = observer(function ActiveTaskTitlebar({
   if (!taskStore || !taskPayload) return null;
 
   const isRemoteProject = projectStore?.data.type === 'ssh';
+  const additionalRepoNames = (taskPayload.repos ?? [])
+    .filter((repo) => repo.projectId !== projectId)
+    .map((repo) => projectDisplayName(getProjectStore(repo.projectId)));
   return (
     <Titlebar
       leftSlot={
@@ -144,6 +147,20 @@ const ActiveTaskTitlebar = observer(function ActiveTaskTitlebar({
           >
             {projectName}
           </button>
+          {additionalRepoNames.length > 0 && (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Badge variant="secondary" className="px-1 text-[10px]">
+                    +{additionalRepoNames.length}
+                  </Badge>
+                }
+              />
+              <TooltipContent>
+                Also working in: {additionalRepoNames.join(', ')}
+              </TooltipContent>
+            </Tooltip>
+          )}
           <span className="text-sm text-foreground-passive">/</span>
           <Popover>
             <Tooltip>

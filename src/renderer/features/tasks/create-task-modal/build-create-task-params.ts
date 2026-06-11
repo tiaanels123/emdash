@@ -1,4 +1,5 @@
 import type { AgentProviderId } from '@shared/core/agents/agent-provider-registry';
+import type { Branch } from '@shared/core/git/git';
 import type { PullRequest } from '@shared/core/pull-requests/pull-requests';
 import { getPrNumber, isForkPr } from '@shared/core/pull-requests/pull-requests';
 import type { TaskConfig } from '@shared/core/tasks/task-config';
@@ -100,6 +101,54 @@ export function deriveInitialStatus(
 ): TaskLifecycleStatus | undefined {
   if (linkedType !== 'pr' || !linkedPR) return undefined;
   return linkedPR.status === 'open' && !linkedPR.isDraft ? 'review' : undefined;
+}
+
+export type AdditionalRepoInfo = {
+  projectId: string;
+  defaultBranch: Branch | null;
+  repositoryWorkspaceId: string | null;
+};
+
+/**
+ * Builds the per-repo workspace config for a task's ADDITIONAL repos. Mirrors
+ * the primary checkout mode: worktree-based primaries get a worktree on the
+ * same task branch name created from each repo's default branch; no-worktree
+ * primaries attach each repo at its repository root.
+ */
+export function buildAdditionalRepoConfigs(
+  primaryGit: GitSetup,
+  taskBranchName: string,
+  repos: AdditionalRepoInfo[]
+): Array<{ projectId: string; workspaceConfig: WorkspaceConfig }> {
+  return repos.map((repo) => {
+    const useWorktree = primaryGit.kind !== 'none' && !!repo.defaultBranch && !!taskBranchName;
+
+    if (useWorktree) {
+      return {
+        projectId: repo.projectId,
+        workspaceConfig: {
+          version: '2' as const,
+          git: {
+            kind: 'create-branch' as const,
+            branchName: taskBranchName,
+            fromBranch: repo.defaultBranch!,
+          },
+          workspace: { kind: 'new-worktree' as const },
+        },
+      };
+    }
+
+    return {
+      projectId: repo.projectId,
+      workspaceConfig: {
+        version: '2' as const,
+        git: { kind: 'none' as const },
+        workspace: repo.repositoryWorkspaceId
+          ? { kind: 'repository-instance' as const, workspaceId: repo.repositoryWorkspaceId }
+          : { kind: 'new-worktree' as const },
+      },
+    };
+  });
 }
 
 export function buildWorkspaceConfig(

@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { eq, inArray, sql } from 'drizzle-orm';
+import { inArray, sql } from 'drizzle-orm';
 import { mapConversationRowToConversation } from '@main/core/conversations/utils';
 import { projectManager } from '@main/core/projects/project-manager';
 import { db, type DrizzleTx } from '@main/db/client';

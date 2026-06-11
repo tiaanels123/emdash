@@ -20,6 +20,7 @@ import {
 } from '@renderer/lib/ui/dialog';
 import type { PullRequest } from '@shared/core/pull-requests/pull-requests';
 import { useInitialConversationState } from '../conversations/initial-conversation-section';
+import { AdditionalReposSection, useAdditionalReposState } from './additional-repos-section';
 import { LinkedEntitySection } from './linked-entity-section';
 import { SectionTabsPanel } from './section-tabs-panel';
 import { TaskNameField } from './task-name-field';
@@ -106,6 +107,8 @@ export const CreateTaskModal = observer(function CreateTaskModal({
     isWorkspaceProviderEnabled
   );
 
+  const additionalRepos = useAdditionalReposState();
+
   const { handleCreateTask, canCreate } = useCreateTaskCallback({
     selectedProjectId,
     state,
@@ -113,6 +116,7 @@ export const CreateTaskModal = observer(function CreateTaskModal({
     isUnborn,
     projectData,
     useBYOI,
+    additionalProjectIds: additionalRepos.selectedProjectIds,
     navigate,
     onClose,
   });
@@ -144,6 +148,9 @@ export const CreateTaskModal = observer(function CreateTaskModal({
             isWorkspaceProviderEnabled={isWorkspaceProviderEnabled}
             includeIssueContextByDefault={includeIssueContextByDefault}
           />
+          {!useBYOI && (
+            <AdditionalReposSection primaryProjectId={selectedProjectId} state={additionalRepos} />
+          )}
         </div>
       </DialogContentArea>
       <DialogFooter>
