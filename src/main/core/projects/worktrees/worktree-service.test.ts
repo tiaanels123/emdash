@@ -387,7 +387,9 @@ describe('WorktreeService', () => {
 
       expect(result.success).toBe(true);
       if (!result.success) throw new Error('expected success');
-      expect(result.data).toBe(fs.realpathSync(externalPath));
+      // `git worktree list --porcelain` reports forward-slash paths on Windows;
+      // normalize to native separators before comparing with fs.realpathSync.
+      expect(path.normalize(result.data)).toBe(fs.realpathSync(externalPath));
 
       fs.rmSync(externalDir, { recursive: true, force: true });
     });
@@ -474,7 +476,9 @@ describe('WorktreeService', () => {
 
       expect(result.success).toBe(true);
       if (!result.success) throw new Error('expected success');
-      expect(result.data).toBe(fs.realpathSync(externalPath));
+      // `git worktree list --porcelain` reports forward-slash paths on Windows;
+      // normalize to native separators before comparing with fs.realpathSync.
+      expect(path.normalize(result.data)).toBe(fs.realpathSync(externalPath));
 
       fs.rmSync(externalDir, { recursive: true, force: true });
     });

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TaskRow } from '@main/db/schema';
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import { createTask } from './createTask';
 
 const mocks = vi.hoisted(() => ({
@@ -24,6 +25,7 @@ vi.mock('@main/core/projects/project-manager', () => ({
 function makeTaskRow(values: Partial<TaskRow>): TaskRow {
   return {
     id: values.id ?? 'task-1',
+    organizationId: values.organizationId ?? PERSONAL_ORGANIZATION_ID,
     projectId: values.projectId ?? 'project-1',
     name: values.name ?? 'Test Task',
     status: values.status ?? 'in_progress',
@@ -75,9 +77,15 @@ function setupTransactionMock() {
 function setupSelectMock(workspaceProvider = 'local', sshConnectionId: string | null = null) {
   mocks.select.mockReturnValue({
     from: () => ({
-      where: () => ({
-        limit: () => Promise.resolve([{ workspaceProvider, sshConnectionId }]),
-      }),
+      where: () =>
+        Promise.resolve([
+          {
+            id: 'project-1',
+            organizationId: PERSONAL_ORGANIZATION_ID,
+            workspaceProvider,
+            sshConnectionId,
+          },
+        ]),
     }),
   });
 }
@@ -177,9 +185,17 @@ describe('createTask', () => {
         },
       });
 
-      // Only the task row is inserted — no workspace insert.
-      expect(captured).toHaveLength(1);
+      // Task row + primary attachment row — no workspace insert.
+      expect(captured).toHaveLength(2);
       expect((captured[0] as Record<string, unknown>).workspaceId).toBe('ws-repo-1');
+      expect(captured[1]).toEqual(
+        expect.objectContaining({
+          taskId: 'task-1',
+          projectId: 'project-1',
+          workspaceId: 'ws-repo-1',
+          sortOrder: 0,
+        })
+      );
     });
 
     it('does not insert a new workspace row', async () => {
@@ -195,8 +211,9 @@ describe('createTask', () => {
         },
       });
 
-      // captured[0] = task. No workspace insert at index 1.
-      expect(captured).toHaveLength(1);
+      // captured[0]=task, captured[1]=attachment — no workspace insert.
+      expect(captured).toHaveLength(2);
+      expect(captured.some((v) => (v as Record<string, unknown>).kind !== undefined)).toBe(false);
     });
   });
 
@@ -221,8 +238,8 @@ describe('createTask', () => {
         workspaceConfig,
       });
 
-      // captured[0]=task, captured[1]=workspace
-      expect(captured).toHaveLength(2);
+      // captured[0]=task, captured[1]=workspace, captured[2]=attachment
+      expect(captured).toHaveLength(3);
       const wsInsert = captured[1] as Record<string, unknown>;
       expect(wsInsert.kind).toBe('worktree');
       expect(wsInsert.location).toBe('local');

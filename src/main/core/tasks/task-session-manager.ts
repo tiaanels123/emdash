@@ -51,7 +51,8 @@ export type TaskManagerHooks = {
 async function executeTeardown(
   task: TaskProvider,
   workspaceId: string,
-  mode: TeardownMode
+  mode: TeardownMode,
+  additionalWorkspaceIds: string[] = []
 ): Promise<void> {
   if (mode === 'detach') {
     await task.conversations.detachAll();
@@ -61,6 +62,14 @@ async function executeTeardown(
     await task.terminals.destroyAll();
   }
   await workspaceRegistry.release(workspaceId, mode);
+  for (const additionalId of additionalWorkspaceIds) {
+    await workspaceRegistry.release(additionalId, mode).catch((e) => {
+      log.warn('TaskManager: failed to release additional workspace', {
+        workspaceId: additionalId,
+        error: String(e),
+      });
+    });
+  }
 }
 
 async function cleanupDetachedSessions(
@@ -90,6 +99,13 @@ class TaskSessionManager {
           taskId,
           workspaceId: stored.persistData.workspaceId,
         });
+        for (const additional of stored.persistData.additionalWorkspaces ?? []) {
+          this._hooks.callHookBackground('task:torn-down', {
+            projectId: additional.projectId,
+            taskId,
+            workspaceId: additional.workspaceId,
+          });
+        }
       },
     }
   );
@@ -108,6 +124,12 @@ class TaskSessionManager {
     projectId: string,
     ctx: IExecutionContext
   ): Promise<void> {
+    const additionalWorkspaces = (result.additionalWorkspaces ?? []).map((a) => ({
+      projectId: a.projectId,
+      workspaceId: a.workspaceId,
+      path: a.path,
+    }));
+
     const stored: StoredTask = {
       taskProvider: result.taskProvider,
       persistData: {
@@ -115,6 +137,7 @@ class TaskSessionManager {
         sshConnectionId: result.sshConnectionId,
         worktreeGitDir: result.worktreeGitDir,
         workspaceProviderData: result.workspaceProviderData as WorkspaceProviderData | undefined,
+        additionalWorkspaces: additionalWorkspaces.length ? additionalWorkspaces : undefined,
       },
       projectId,
       ctx,
@@ -134,6 +157,17 @@ class TaskSessionManager {
       workspaceId: result.workspaceId,
       worktreeGitDir: result.worktreeGitDir,
     });
+    // One hook per additional attachment so git watchers / PR sync / telemetry
+    // see every (project, workspace) pair of a multi-repo task.
+    for (const additional of result.additionalWorkspaces ?? []) {
+      this._hooks.callHookBackground('task:provisioned', {
+        projectId: additional.projectId,
+        taskId,
+        branchName: additional.branchName,
+        workspaceId: additional.workspaceId,
+        worktreeGitDir: additional.worktreeGitDir,
+      });
+    }
   }
 
   async teardownTask(
@@ -145,7 +179,12 @@ class TaskSessionManager {
       async ({ taskProvider, persistData, projectId, ctx }) => {
         try {
           await withTimeout(
-            executeTeardown(taskProvider, persistData.workspaceId, mode),
+            executeTeardown(
+              taskProvider,
+              persistData.workspaceId,
+              mode,
+              (persistData.additionalWorkspaces ?? []).map((a) => a.workspaceId)
+            ),
             TASK_TIMEOUT_MS
           );
           return ok();

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type BetterSqlite3 from 'better-sqlite3';
 import { ensureDefaultOrganization } from '@main/db/org-data-migration';
+import { ensureTaskOrganizations } from '@main/db/task-org-migration';
 import journal from '@root/drizzle/meta/_journal.json';
 
 // Vite bundles all migration SQL files at build time — no runtime path resolution needed.
@@ -142,6 +143,7 @@ export async function initializeDatabase(
   const conn = connection ?? (await import('./client')).sqlite;
   runBundledMigrations(conn);
   ensureDefaultOrganization(conn);
+  ensureTaskOrganizations(conn);
   ensureSearchIndex(conn);
   ensureFileIndex(conn);
   return conn;

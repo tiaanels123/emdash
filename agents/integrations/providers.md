@@ -20,6 +20,8 @@ codex, claude, grok, devin, qwen, droid, gemini, antigravity, cursor, copilot, a
 - keystroke injection behavior
 - resume and session flags
 - optional plan activation and auto-start commands
+- optional `addDirFlag` granting access to additional directories (multi-repo
+  tasks emit it once per extra worktree; e.g. Claude Code `--add-dir`)
 
 ## Agent Event Classifiers
 

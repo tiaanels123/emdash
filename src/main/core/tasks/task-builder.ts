@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type { ConversationProvider } from '@main/core/conversations/types';
 import type { TerminalProvider } from '@main/core/terminals/terminal-provider';
 import type { Workspace } from '@main/core/workspaces/workspace';
@@ -49,7 +50,8 @@ export async function buildTaskFromWorkspace(
   projectPath: string,
   settings: ProjectSettingsProvider,
   workspaceBranchName?: string,
-  workspaceSourceBranch?: Branch
+  workspaceSourceBranch?: Branch,
+  extraWorktreePaths?: string[]
 ): Promise<BuildTaskResult> {
   const { taskEnvVars, tmuxEnabled, shellSetup } = await resolveTaskEnv(
     task,
@@ -57,6 +59,10 @@ export async function buildTaskFromWorkspace(
     projectPath,
     settings
   );
+
+  if (extraWorktreePaths?.length) {
+    taskEnvVars.EMDASH_REPO_PATHS = [workspace.path, ...extraWorktreePaths].join(path.delimiter);
+  }
 
   const { conversations: conversationProvider, terminals: terminalProvider } =
     await buildTaskProviders(type, {
@@ -66,6 +72,7 @@ export async function buildTaskFromWorkspace(
       tmuxEnabled,
       shellSetup,
       taskEnvVars,
+      extraWorktreePaths,
     });
 
   const taskProvider: TaskProvider = {

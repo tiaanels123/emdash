@@ -48,7 +48,8 @@ export class LocalConversationProvider implements ConversationProvider {
   private readonly shellProfile: ResolvedShellProfile;
   private readonly ctx: IExecutionContext;
   private readonly taskEnvVars: Record<string, string>;
-  private readonly hookConfigWriter: HookConfigWriter;
+  private readonly extraWorktreePaths: string[];
+  private readonly hookConfigWriters: HookConfigWriter[];
   private readonly preparedHookProviders = new Map<
     string,
     { writeGitIgnoreEntries: boolean; hooksAvailable: boolean }
@@ -63,6 +64,7 @@ export class LocalConversationProvider implements ConversationProvider {
     shellProfile,
     ctx,
     taskEnvVars = {},
+    extraWorktreePaths = [],
   }: {
     projectId: string;
     taskPath: string;
@@ -72,6 +74,8 @@ export class LocalConversationProvider implements ConversationProvider {
     shellProfile: ResolvedShellProfile;
     ctx: IExecutionContext;
     taskEnvVars?: Record<string, string>;
+    /** Worktree paths of the task's additional repos (multi-repo tasks). */
+    extraWorktreePaths?: string[];
   }) {
     this.projectId = projectId;
     this.taskPath = taskPath;
@@ -81,7 +85,13 @@ export class LocalConversationProvider implements ConversationProvider {
     this.shellProfile = shellProfile;
     this.ctx = ctx;
     this.taskEnvVars = taskEnvVars;
-    this.hookConfigWriter = new HookConfigWriter(new LocalFileSystem(taskPath), ctx);
+    this.extraWorktreePaths = extraWorktreePaths;
+    // Hook config (and gitignore entries) must exist in EVERY repo the agent can
+    // touch — providers read project-level settings from whichever directory
+    // they operate in.
+    this.hookConfigWriters = [taskPath, ...extraWorktreePaths].map(
+      (dir) => new HookConfigWriter(new LocalFileSystem(dir), ctx)
+    );
   }
 
   async startSession(
@@ -118,12 +128,16 @@ export class LocalConversationProvider implements ConversationProvider {
     if (!spawnToken) return;
 
     try {
-      await workspaceTrustService.maybeAutoTrustLocal({
-        providerId: conversation.providerId,
-        cwd: this.taskPath,
-        homedir: homedir(),
-        force: conversation.autoApprove === true,
-      });
+      // Trust the primary cwd plus every additional worktree — agents prompt (or
+      // refuse edits) per directory, including ones granted via --add-dir.
+      for (const cwd of [this.taskPath, ...this.extraWorktreePaths]) {
+        await workspaceTrustService.maybeAutoTrustLocal({
+          providerId: conversation.providerId,
+          cwd,
+          homedir: homedir(),
+          force: conversation.autoApprove === true,
+        });
+      }
       const hooksAvailable = await this.prepareHookConfig(conversation.providerId);
 
       const organizationId = await getProjectOrganizationId(conversation.projectId);
@@ -140,12 +154,20 @@ export class LocalConversationProvider implements ConversationProvider {
         initialPrompt,
         isResuming: agentSession.isResuming,
       });
+      // Expose the additional repos' worktrees to providers that support extra
+      // directories (e.g. Claude Code --add-dir). Session args apply to fresh
+      // AND resume spawns, so multi-repo access survives respawns.
+      const addDirFlag = providerDef?.addDirFlag;
+      const addDirArgs =
+        addDirFlag && this.extraWorktreePaths.length
+          ? this.extraWorktreePaths.flatMap((dir) => [addDirFlag, dir])
+          : [];
       const { command, args } = buildAgentSessionCommand({
         providerId: conversation.providerId,
         providerConfig,
         autoApprove: conversation.autoApprove,
         extraInitialArgs: initialPromptDelivery.argvAddition(),
-        extraSessionArgs: effortSessionArgs(conversation.effort),
+        extraSessionArgs: [...effortSessionArgs(conversation.effort), ...addDirArgs],
         initialPrompt,
         sessionId: agentSession.sessionId,
         providerSessionId: conversation.providerSessionId,
@@ -304,9 +326,14 @@ export class LocalConversationProvider implements ConversationProvider {
         previous === undefined || (!previous.writeGitIgnoreEntries && writeGitIgnoreEntries);
       if (!shouldPrepareHookConfig) return previous?.hooksAvailable ?? false;
 
-      const hooksAvailable = await this.hookConfigWriter.writeForProvider(providerId, {
-        writeGitIgnoreEntries,
-      });
+      const results = await Promise.all(
+        this.hookConfigWriters.map((writer) =>
+          writer.writeForProvider(providerId, { writeGitIgnoreEntries })
+        )
+      );
+      // The primary worktree (the agent's cwd / project root) determines hook
+      // availability; extra worktrees only need the config present on disk.
+      const hooksAvailable = results[0] ?? false;
       this.preparedHookProviders.set(providerId, {
         writeGitIgnoreEntries,
         hooksAvailable,

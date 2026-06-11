@@ -62,12 +62,40 @@ function seedAutomation(
   return id;
 }
 
+/**
+ * Link a task to an automation run via tasks.automation_run_id (the replacement
+ * for the removed automation_runs.task_id column). In the real flow a task row
+ * exists by the time a run reaches launching_task / creating_conversation, and
+ * restart recovery for those statuses requires the linked task to be present.
+ */
+function seedRunTask(
+  fixture: Awaited<ReturnType<typeof openFixture>>,
+  automationRunId: string,
+  opts: { id?: string; projectId?: string } = {}
+): string {
+  const id = opts.id ?? `task-for-${automationRunId}`;
+  fixture.sqlite
+    .prepare(
+      `INSERT INTO tasks (id, project_id, name, status, type, automation_run_id)
+       VALUES (?, ?, 'Automation run task', 'open', 'automation-run', ?)`
+    )
+    .run(id, opts.projectId ?? 'project-1', automationRunId);
+  return id;
+}
+
 function getRunRow(
   fixture: Awaited<ReturnType<typeof openFixture>>,
   id: string
 ): { status: string; error: string | null; task_id: string | null } | undefined {
+  // automation_runs.task_id was removed in migration 0015; a task created by a run
+  // is now linked from the other side via tasks.automation_run_id, so derive it.
   return fixture.sqlite
-    .prepare('SELECT status, error, task_id FROM automation_runs WHERE id = ?')
+    .prepare(
+      `SELECT ar.status, ar.error, t.id AS task_id
+       FROM automation_runs ar
+       LEFT JOIN tasks t ON t.automation_run_id = ar.id
+       WHERE ar.id = ?`
+    )
     .get(id) as { status: string; error: string | null; task_id: string | null } | undefined;
 }
 
@@ -192,6 +220,7 @@ describe('AutomationScheduler recovery', () => {
       triggerKind: 'cron',
       startedAt: Date.now(),
     });
+    seedRunTask(fixture, run.id);
 
     const scheduler = new AutomationScheduler(makeCallbacks(), doneExecutor);
     scheduler.start();
@@ -216,6 +245,7 @@ describe('AutomationScheduler recovery', () => {
       triggerKind: 'cron',
       startedAt: Date.now(),
     });
+    seedRunTask(fixture, run.id);
 
     const scheduler = new AutomationScheduler(makeCallbacks(), doneExecutor);
     scheduler.start();
@@ -596,10 +626,13 @@ describe('AutomationScheduler concurrency', () => {
     await vi.waitFor(() => expect(executorCalls).toHaveLength(5));
     expect(countRunsByStatus(fixture, 'creating_task')).toBe(4);
 
-    // Release all remaining
+    // Release all remaining workers that have started so far
     for (const runId of executorCalls.slice(1)) {
       releaseMap.get(runId)?.();
     }
+    // The 6th run only starts once a slot frees up — wait for it, then release it too
+    await vi.waitFor(() => expect(executorCalls).toHaveLength(6));
+    releaseMap.get(executorCalls[5]!)?.();
     await vi.waitFor(() => expect(countRunsByStatus(fixture, 'done')).toBe(6));
   });
 });
@@ -634,13 +667,16 @@ describe('AutomationScheduler post-worker rescheduling', () => {
 
     await vi.waitFor(() => expect(getRunRow(fixture, run.id)?.status).toBe('done'));
 
-    // A subsequent scheduled run should now exist
-    const nextRows = fixture.sqlite
-      .prepare(
-        "SELECT status FROM automation_runs WHERE automation_id = ? AND id != ? AND status = 'scheduled'"
-      )
-      .all(automationId, run.id) as { status: string }[];
-    expect(nextRows.length).toBeGreaterThanOrEqual(1);
+    // A subsequent scheduled run should now exist. It is inserted in the worker's
+    // finally block, after the run is already marked done — so poll for it.
+    await vi.waitFor(() => {
+      const nextRows = fixture.sqlite
+        .prepare(
+          "SELECT status FROM automation_runs WHERE automation_id = ? AND id != ? AND status = 'scheduled'"
+        )
+        .all(automationId, run.id) as { status: string }[];
+      expect(nextRows.length).toBeGreaterThanOrEqual(1);
+    });
   });
 });
 

@@ -203,6 +203,19 @@ export const tasks = sqliteTable(
   'tasks',
   {
     id: text('id').primaryKey(),
+    /**
+     * Owning organization. Tasks are org-owned; the org must match every attached
+     * project's organization (validated at creation). Defaults to the Personal
+     * organization so existing rows are backfilled by the schema migration's
+     * ADD COLUMN; the real value is derived from the primary project's org by the
+     * `ensureTaskOrganizations` data migration.
+     *
+     * Intentionally NOT a declared foreign key — same rationale as
+     * projects.organizationId above (SQLite ADD COLUMN limitation + FKs are
+     * unenforced at runtime).
+     */
+    organizationId: text('organization_id').notNull().default(PERSONAL_ORGANIZATION_ID),
+    /** Primary project (repo). Additional repos live in task_projects. */
     projectId: text('project_id')
       .notNull()
       .references(() => projects.id, { onDelete: 'cascade' }),
@@ -224,6 +237,7 @@ export const tasks = sqliteTable(
       .default(sql`CURRENT_TIMESTAMP`),
     isPinned: integer('is_pinned').notNull().default(0), // boolean, 0=false, 1=true
     workspaceProvider: text('workspace_provider'), // @deprecated — superseded by workspaces.type; still read in resolveBootstrap for legacy BYOI tasks
+    /** Primary workspace. Additional repos' workspaces live in task_projects. */
     workspaceId: text('workspace_id'),
     workspaceProviderData: text('workspace_provider_data'), // @deprecated — superseded by workspaces.data
     workspaceIntent: text('workspace_intent'), // JSON: { git: GitSetup; workspace: WorkspaceLocation }
@@ -232,6 +246,37 @@ export const tasks = sqliteTable(
   },
   (table) => ({
     projectIdIdx: index('idx_tasks_project_id').on(table.projectId),
+    organizationIdIdx: index('idx_tasks_organization_id').on(table.organizationId),
+  })
+);
+
+/**
+ * Repos attached to a task — one row per (task, project) attachment, each with
+ * its own workspace (worktree). `sort_order = 0` is the primary repo and mirrors
+ * the legacy `tasks.project_id` / `tasks.workspace_id` columns, which are kept
+ * for the single-repo plumbing (PTY session ids, events, navigation).
+ *
+ * Foreign keys are declared for intent only; runtime cleanup is handled in the
+ * operation layer (FK enforcement is off — see projects.organizationId note).
+ */
+export const taskProjects = sqliteTable(
+  'task_projects',
+  {
+    taskId: text('task_id')
+      .notNull()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+    projectId: text('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    workspaceId: text('workspace_id'),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: text('created_at')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.taskId, table.projectId] }),
+    projectIdIdx: index('idx_task_projects_project_id').on(table.projectId),
   })
 );
 
@@ -579,6 +624,8 @@ export type AutomationRunRow = typeof automationRuns.$inferSelect;
 export type ProjectSettingsRow = typeof projectSettings.$inferSelect;
 export type ProjectSettingsInsert = typeof projectSettings.$inferInsert;
 export type TaskRow = typeof tasks.$inferSelect;
+export type TaskProjectRow = typeof taskProjects.$inferSelect;
+export type TaskProjectInsert = typeof taskProjects.$inferInsert;
 export type ConversationRow = typeof conversations.$inferSelect;
 export type TerminalRow = typeof terminals.$inferSelect;
 export type MessageRow = typeof messages.$inferSelect;

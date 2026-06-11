@@ -3,26 +3,21 @@ import { ok } from '@shared/lib/result';
 import { deleteProject } from './deleteProject';
 
 const mocks = vi.hoisted(() => ({
-  automationEmit: vi.fn(),
   captureTelemetry: vi.fn(),
   closeProject: vi.fn(),
   deleteProjectData: vi.fn(),
   deleteProjectRow: vi.fn(),
   deleteWhere: vi.fn(),
   delViewState: vi.fn(),
-  detachProject: vi.fn(),
+  detachProjectAutomations: vi.fn(),
   getProject: vi.fn(),
   getTasks: vi.fn(),
   projectEmit: vi.fn(),
   teardownTask: vi.fn(),
 }));
 
-vi.mock('@main/core/automations/automation-events', () => ({
-  automationEvents: { _emit: mocks.automationEmit },
-}));
-
-vi.mock('@main/core/automations/service', () => ({
-  detachProject: mocks.detachProject,
+vi.mock('@main/core/automations/repo', () => ({
+  detachProjectAutomations: mocks.detachProjectAutomations,
 }));
 
 vi.mock('@main/core/projects/project-events', () => ({
@@ -81,7 +76,7 @@ describe('deleteProject', () => {
     mocks.closeProject.mockResolvedValue(ok());
     mocks.teardownTask.mockResolvedValue(ok());
     mocks.deleteProjectData.mockResolvedValue(undefined);
-    mocks.detachProject.mockResolvedValue(0);
+    mocks.detachProjectAutomations.mockResolvedValue([]);
     mocks.delViewState.mockResolvedValue(undefined);
   });
 
@@ -89,7 +84,8 @@ describe('deleteProject', () => {
     await deleteProject('project-1');
 
     expect(mocks.closeProject).toHaveBeenCalledWith('project-1');
-    expect(mocks.deleteWhere).toHaveBeenCalledTimes(1);
+    // Two deletes: task_projects detach, then the project row.
+    expect(mocks.deleteWhere).toHaveBeenCalledTimes(2);
     const closeOrder = mocks.closeProject.mock.invocationCallOrder[0];
     const deleteOrder = mocks.deleteWhere.mock.invocationCallOrder[0];
     expect(closeOrder).toBeDefined();
@@ -105,21 +101,21 @@ describe('deleteProject', () => {
     expect(mocks.closeProject).not.toHaveBeenCalled();
     expect(mocks.getTasks).not.toHaveBeenCalled();
     expect(mocks.teardownTask).not.toHaveBeenCalled();
-    expect(mocks.deleteWhere).toHaveBeenCalledTimes(1);
+    expect(mocks.deleteWhere).toHaveBeenCalledTimes(2);
   });
 
   it('cleans PR sync data and automation project links before deleting the project row', async () => {
     await deleteProject('project-1');
 
     expect(mocks.deleteProjectData).toHaveBeenCalledWith('project-1');
-    expect(mocks.detachProject).toHaveBeenCalledWith('project-1');
-    expect(mocks.deleteProjectRow).toHaveBeenCalledTimes(1);
-    expect(mocks.deleteWhere).toHaveBeenCalledTimes(1);
+    expect(mocks.detachProjectAutomations).toHaveBeenCalledWith('project-1');
+    expect(mocks.deleteProjectRow).toHaveBeenCalledTimes(2);
+    expect(mocks.deleteWhere).toHaveBeenCalledTimes(2);
 
     expect(mocks.deleteProjectData.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.deleteProjectRow.mock.invocationCallOrder[0]
     );
-    expect(mocks.detachProject.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(mocks.detachProjectAutomations.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.deleteProjectRow.mock.invocationCallOrder[0]
     );
   });

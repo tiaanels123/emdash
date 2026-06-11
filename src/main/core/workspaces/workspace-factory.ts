@@ -279,6 +279,8 @@ type TaskProviderOpts = {
   tmuxEnabled: boolean;
   shellSetup?: string;
   taskEnvVars: Record<string, string>;
+  /** Worktree paths of the task's additional repos (multi-repo tasks, local only). */
+  extraWorktreePaths?: string[];
 };
 
 async function resolveLocalConversationShellProfile(taskId: string): Promise<ResolvedShellProfile> {
@@ -344,6 +346,7 @@ export async function buildTaskProviders(
       shellProfile: conversationShellProfile,
       ctx,
       taskEnvVars: opts.taskEnvVars,
+      extraWorktreePaths: opts.extraWorktreePaths,
     }),
     terminals: new LocalTerminalProvider({
       projectId: opts.projectId,

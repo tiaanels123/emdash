@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm';
+import { detachProjectAutomations } from '@main/core/automations/repo';
 import { projectEvents } from '@main/core/projects/project-events';
 import { projectManager } from '@main/core/projects/project-manager';
 import { prSyncEngine } from '@main/core/pull-requests/pr-sync-engine';
@@ -6,7 +7,7 @@ import { getTasks } from '@main/core/tasks/operations/getTasks';
 import { taskSessionManager } from '@main/core/tasks/task-session-manager';
 import { viewStateService } from '@main/core/view-state/view-state-service';
 import { db } from '@main/db/client';
-import { projects } from '@main/db/schema';
+import { projects, taskProjects } from '@main/db/schema';
 import { telemetryService } from '@main/lib/telemetry';
 
 export async function deleteProject(id: string): Promise<void> {
@@ -21,6 +22,14 @@ export async function deleteProject(id: string): Promise<void> {
   }
 
   await prSyncEngine.deleteProjectData(id);
+  // Orphan this project's automations (FKs are unenforced at runtime) so the
+  // scheduler skips their queued runs and stops scheduling new cron runs
+  // instead of executing against a deleted project.
+  await detachProjectAutomations(id);
+  // Detach this project from every task attachment (FKs are unenforced at
+  // runtime) — multi-repo tasks that attached it as a secondary repo keep
+  // working against their remaining repos.
+  await db.delete(taskProjects).where(eq(taskProjects.projectId, id));
   await db.delete(projects).where(eq(projects.id, id));
   void viewStateService.del(`project:${id}`);
   projectEvents._emit('project:deleted', id);

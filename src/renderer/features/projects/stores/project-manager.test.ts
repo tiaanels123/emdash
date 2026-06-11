@@ -356,6 +356,7 @@ describe('ProjectManagerStore project creation', () => {
     if (result.kind === 'creating') void result.completion.catch(() => {});
 
     expect(mocks.createGithubRepository).toHaveBeenCalledWith(
+      PERSONAL_ORGANIZATION_ID,
       expect.objectContaining({ accountId: 'github.com:42' })
     );
   });
@@ -417,7 +418,7 @@ describe('ProjectManagerStore project creation', () => {
       await expect(result.completion).rejects.toThrow('Clone failed');
     }
 
-    expect(mocks.deleteGithubRepository).toHaveBeenCalledWith({
+    expect(mocks.deleteGithubRepository).toHaveBeenCalledWith(PERSONAL_ORGANIZATION_ID, {
       owner: 'acme',
       name: 'project',
       accountId: 'github.com:42',

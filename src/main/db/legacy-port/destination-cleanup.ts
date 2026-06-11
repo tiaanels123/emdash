@@ -51,6 +51,26 @@ export function deleteProjectsById(
     `DELETE FROM project_remotes WHERE project_id IN (${placeholders})`,
     ids
   );
+  if (tableExists(sqlite, 'task_projects')) {
+    // Tasks whose PRIMARY project is deleted are removed outright — drop all of
+    // their attachment rows first (including attachments to surviving projects).
+    runDelete(
+      sqlite,
+      'task_projects',
+      `DELETE FROM task_projects WHERE task_id IN (
+        SELECT id FROM tasks WHERE project_id IN (${placeholders})
+      )`,
+      ids
+    );
+    // Tasks that merely ATTACH a deleted project as a secondary repo survive;
+    // detach them by removing the join rows pointing at the deleted projects.
+    runDelete(
+      sqlite,
+      'task_projects',
+      `DELETE FROM task_projects WHERE project_id IN (${placeholders})`,
+      ids
+    );
+  }
   runDelete(sqlite, 'tasks', `DELETE FROM tasks WHERE project_id IN (${placeholders})`, ids);
   sqlite.prepare(`DELETE FROM projects WHERE id IN (${placeholders})`).run(...ids);
 }

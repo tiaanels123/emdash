@@ -91,6 +91,12 @@ export type AgentProviderDefinition = {
   invertInDark?: boolean;
   terminalOnly?: boolean;
   supportsHooks?: boolean;
+  /**
+   * CLI flag that grants the agent access to an additional directory, emitted
+   * once per extra worktree of a multi-repo task (e.g. '--add-dir' for Claude
+   * Code). Providers without it only see the primary repo in such tasks.
+   */
+  addDirFlag?: string;
 };
 
 export const AGENT_PROVIDERS: AgentProviderDefinition[] = [
@@ -135,6 +141,7 @@ export const AGENT_PROVIDERS: AgentProviderDefinition[] = [
     initialPromptFlag: '',
     resumeFlag: '--resume',
     sessionIdFlag: '--session-id',
+    addDirFlag: '--add-dir',
     planActivateCommand: '/plan',
     icon: 'claude.svg',
     alt: 'Claude Code',

@@ -1,5 +1,5 @@
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
@@ -35,8 +35,8 @@ Host plain
         hostname: 'dev.internal',
         user: 'alice',
         port: 2222,
-        identityFile: expect.stringContaining('/.ssh/dev_ed25519'),
-        identityAgent: expect.stringContaining('/.1password/agent.sock'),
+        identityFile: join(homedir(), '.ssh', 'dev_ed25519'),
+        identityAgent: join(homedir(), '.1password', 'agent.sock'),
         proxyCommand: 'cloudflared access ssh --hostname %h',
         forwardAgent: true,
         forwardAgentValue: '$SSH_AUTH_SOCK',
@@ -46,8 +46,8 @@ Host plain
         hostname: 'dev.internal',
         user: 'alice',
         port: 2222,
-        identityFile: expect.stringContaining('/.ssh/dev_ed25519'),
-        identityAgent: expect.stringContaining('/.1password/agent.sock'),
+        identityFile: join(homedir(), '.ssh', 'dev_ed25519'),
+        identityAgent: join(homedir(), '.1password', 'agent.sock'),
         proxyCommand: 'cloudflared access ssh --hostname %h',
         forwardAgent: true,
         forwardAgentValue: '$SSH_AUTH_SOCK',
@@ -159,13 +159,13 @@ Host second
         host: 'first',
         hostname: 'first.internal',
         user: 'shared',
-        identityAgent: expect.stringContaining('/.ssh/shared-agent.sock'),
+        identityAgent: join(homedir(), '.ssh', 'shared-agent.sock'),
       },
       {
         host: 'second',
         hostname: 'second.internal',
         user: 'shared',
-        identityAgent: expect.stringContaining('/.ssh/shared-agent.sock'),
+        identityAgent: join(homedir(), '.ssh', 'shared-agent.sock'),
       },
     ]);
   });

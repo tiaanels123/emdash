@@ -13,6 +13,14 @@ const { ensureUserBinDirsInPath, ensureWindowsNpmGlobalBinInPath, resolveUserEnv
   await import('./userEnv');
 
 const originalPath = process.env.PATH;
+const originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
+
+function setPlatform(platform: NodeJS.Platform): void {
+  Object.defineProperty(process, 'platform', {
+    value: platform,
+    configurable: true,
+  });
+}
 
 afterEach(() => {
   process.env.PATH = originalPath;
@@ -81,9 +89,16 @@ describe('resolveUserEnv (AppImage env scrub)', () => {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
     }
+    if (originalPlatform) {
+      Object.defineProperty(process, 'platform', originalPlatform);
+    }
   });
 
   it('strips AppImage runtime vars and /tmp/.mount_* path entries from the probe shell env and final PATH', async () => {
+    // AppImage scrubbing happens in the POSIX login-shell capture branch of
+    // resolveUserEnv(); pin the platform so the test is deterministic on
+    // Windows hosts (where resolveUserEnv() returns early without probing).
+    setPlatform('linux');
     execSyncMock.mockReturnValue('PATH=/usr/local/bin:/usr/bin\n');
     process.env.APPIMAGE = '/home/user/emdash.AppImage';
     process.env.APPDIR = '/tmp/.mount_emdashTest';

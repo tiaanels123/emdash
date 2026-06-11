@@ -1,4 +1,4 @@
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { projectManager } from '@main/core/projects/project-manager';
 import {
   workspaceBootstrapService,
@@ -6,7 +6,7 @@ import {
 } from '@main/core/workspaces/workspace-bootstrap-service';
 import { workspaceRegistry } from '@main/core/workspaces/workspace-registry';
 import { db } from '@main/db/client';
-import { tasks, workspaces } from '@main/db/schema';
+import { taskProjects, tasks, workspaces } from '@main/db/schema';
 import { events } from '@main/lib/events';
 import { HookCore, type Hookable } from '@main/lib/hookable';
 import { log } from '@main/lib/logger';
@@ -96,6 +96,11 @@ export class TaskService implements Hookable<TaskLifecycleHooks> {
         path: workspaceRegistry.get(wsId)?.path ?? '',
         workspaceId: wsId,
         sshConnectionId: pd?.sshConnectionId,
+        repos: pd?.additionalWorkspaces?.map((a) => ({
+          projectId: a.projectId,
+          workspaceId: a.workspaceId,
+          path: a.path,
+        })),
       };
       this._hooks.callHookBackground('task:workspace-ready', taskId, provisionResult);
       events.emit(taskProvisionedChannel, { taskId, projectId, ...provisionResult });
@@ -111,6 +116,11 @@ export class TaskService implements Hookable<TaskLifecycleHooks> {
       path: result.data.path,
       workspaceId: result.data.workspaceId,
       sshConnectionId: result.data.sshConnectionId,
+      repos: result.data.additionalWorkspaces?.map((a) => ({
+        projectId: a.projectId,
+        workspaceId: a.workspaceId,
+        path: a.path,
+      })),
     };
 
     this._hooks.callHookBackground('task:workspace-ready', taskId, provisionResult);
@@ -140,6 +150,13 @@ export class TaskService implements Hookable<TaskLifecycleHooks> {
       .update(tasks)
       .set({ lastInteractedAt: sql`CURRENT_TIMESTAMP`, workspaceId: data.workspaceId })
       .where(eq(tasks.id, taskId));
+
+    // Keep the primary attachment row mirroring tasks.workspaceId (the
+    // bootstrap's path-key dedupe may have re-pointed the workspace).
+    await db
+      .update(taskProjects)
+      .set({ workspaceId: data.workspaceId })
+      .where(and(eq(taskProjects.taskId, taskId), eq(taskProjects.projectId, task.projectId)));
 
     // BYOI: persist the provider data (remote workspace ID, connection details) returned by
     // the provision script so it can be reused on the next session.

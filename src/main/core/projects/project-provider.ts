@@ -25,6 +25,8 @@ export type ProvisionResult = {
     workspaceProviderData?: WorkspaceProviderData;
     sshConnectionId?: string;
     worktreeGitDir?: string;
+    /** Additional repos' workspaces of a multi-repo task (released on teardown). */
+    additionalWorkspaces?: Array<{ projectId: string; workspaceId: string; path: string }>;
   };
 };
 

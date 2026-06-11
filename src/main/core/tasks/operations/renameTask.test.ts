@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TaskRow } from '@main/db/schema';
+import { PERSONAL_ORGANIZATION_ID } from '@shared/organizations';
 import { renameTask } from './renameTask';
 
 const mocks = vi.hoisted(() => ({
@@ -17,6 +18,7 @@ vi.mock('@main/db/client', () => ({
 function makeTaskRow(values: Partial<TaskRow>): TaskRow {
   return {
     id: values.id ?? 'task-1',
+    organizationId: values.organizationId ?? PERSONAL_ORGANIZATION_ID,
     projectId: values.projectId ?? 'project-1',
     name: values.name ?? 'old-title',
     status: values.status ?? 'in_progress',

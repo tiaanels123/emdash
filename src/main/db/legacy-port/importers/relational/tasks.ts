@@ -1,5 +1,5 @@
 import { toStoredBranch } from '@main/core/tasks/stored-branch';
-import { tasks } from '@main/db/schema';
+import { taskProjects, tasks } from '@main/db/schema';
 import { log } from '@main/lib/logger';
 import { readLegacyRows, toInteger, toIsoTimestamp, toTrimmedString } from './helpers';
 import { insertWithRegeneratedId } from './insert';
@@ -179,6 +179,13 @@ export async function portTasks({ appDb, legacyDb, remap }: PortContext): Promis
       });
       continue;
     }
+
+    // Primary attachment row — legacy tasks are single-repo by definition.
+    await appDb
+      .insert(taskProjects)
+      .values({ taskId: insertResult.id, projectId: mappedProjectId, sortOrder: 0 })
+      .onConflictDoNothing()
+      .execute();
 
     remap.taskId.set(legacyTaskId, insertResult.id);
     existingTaskIds.add(insertResult.id);

@@ -45,6 +45,7 @@ function createAppDb(): Database.Database {
 
     CREATE TABLE tasks (
       id TEXT PRIMARY KEY,
+      organization_id TEXT NOT NULL DEFAULT '${PERSONAL_ORGANIZATION_ID}',
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       status TEXT NOT NULL,
@@ -63,6 +64,15 @@ function createAppDb(): Database.Database {
       workspace_intent TEXT,
       type TEXT NOT NULL DEFAULT 'task',
       automation_run_id TEXT
+    );
+
+    CREATE TABLE task_projects (
+      task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      workspace_id TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (task_id, project_id)
     );
 
     CREATE TABLE conversations (

@@ -1,10 +1,10 @@
 import crypto from 'node:crypto';
-import { eq, sql } from 'drizzle-orm';
+import { inArray, sql } from 'drizzle-orm';
 import { mapConversationRowToConversation } from '@main/core/conversations/utils';
 import { projectManager } from '@main/core/projects/project-manager';
 import { db, type DrizzleTx } from '@main/db/client';
-import { conversations, projects, tasks, workspaces } from '@main/db/schema';
-import type { ConversationRow, TaskRow } from '@main/db/schema';
+import { conversations, projects, taskProjects, tasks, workspaces } from '@main/db/schema';
+import type { ConversationRow, TaskProjectInsert, TaskRow } from '@main/db/schema';
 import { events } from '@main/lib/events';
 import type { ConversationConfig } from '@shared/core/conversations/conversation-config';
 import { conversationCreatedChannel } from '@shared/core/conversations/conversationEvents';
@@ -15,17 +15,70 @@ import type {
   CreateTaskSuccess,
   TaskLifecycleStatus,
 } from '@shared/core/tasks/tasks';
+import type { WorkspaceConfig } from '@shared/core/workspaces/workspace-config';
 import { err, ok, type Result } from '@shared/lib/result';
 import { mapTaskRowToTask } from '../utils/utils';
 
 type ConvInsert = typeof conversations.$inferInsert;
+type WorkspaceInsert = typeof workspaces.$inferInsert;
+
+type ProjectInfo = {
+  id: string;
+  organizationId: string;
+  workspaceProvider: string;
+  sshConnectionId: string | null;
+};
 
 export interface PreparedCreateTask {
   params: CreateTaskParams;
   initialStatus: TaskLifecycleStatus;
+  organizationId: string;
+  /** Primary workspace id (mirrored onto the task row). */
   workspaceId: string;
-  newWorkspaceValues: typeof workspaces.$inferInsert | null;
+  /** New workspace rows to insert (primary and/or additional repos). */
+  newWorkspaces: WorkspaceInsert[];
+  /** One attachment row per repo, primary first (sortOrder 0). */
+  attachments: TaskProjectInsert[];
   convInsert: ConvInsert | undefined;
+}
+
+/**
+ * Resolves the workspace id for one repo's workspace config, queuing a new
+ * workspace row when the target is not an existing repository instance.
+ */
+function resolveWorkspaceForRepo(
+  workspaceConfig: WorkspaceConfig,
+  project: ProjectInfo,
+  newWorkspaces: WorkspaceInsert[]
+): string {
+  const wsTarget = workspaceConfig.workspace;
+  if (wsTarget.kind === 'repository-instance') {
+    return wsTarget.workspaceId;
+  }
+
+  const workspaceId = crypto.randomUUID();
+  if (wsTarget.kind === 'byoi') {
+    newWorkspaces.push({
+      id: workspaceId,
+      kind: 'byoi',
+      location: 'remote',
+      type: 'byoi',
+      config: workspaceConfig,
+    });
+    return workspaceId;
+  }
+
+  // 'new-worktree' — derive location from the owning project.
+  const isRemote = project.workspaceProvider === 'ssh';
+  newWorkspaces.push({
+    id: workspaceId,
+    kind: 'worktree',
+    location: isRemote ? 'remote' : 'local',
+    sshConnectionId: isRemote ? project.sshConnectionId : null,
+    type: isRemote ? 'project-ssh' : 'local',
+    config: workspaceConfig,
+  });
+  return workspaceId;
 }
 
 /**
@@ -40,53 +93,69 @@ export async function prepareCreateTask(
     return err({ type: 'project-not-found' });
   }
 
-  const { workspaceConfig } = params;
-  const initialStatus: TaskLifecycleStatus = params.taskConfig.initialStatus ?? 'in_progress';
+  // Drop duplicate / primary-repeating entries before validation.
+  const additionalRepos = (params.additionalRepos ?? []).filter(
+    (repo, index, list) =>
+      repo.projectId !== params.projectId &&
+      list.findIndex((r) => r.projectId === repo.projectId) === index
+  );
 
-  let workspaceId: string;
-  let newWorkspaceValues: typeof workspaces.$inferInsert | null = null;
+  const projectIds = [params.projectId, ...additionalRepos.map((r) => r.projectId)];
+  const projectRows = await db
+    .select({
+      id: projects.id,
+      organizationId: projects.organizationId,
+      workspaceProvider: projects.workspaceProvider,
+      sshConnectionId: projects.sshConnectionId,
+    })
+    .from(projects)
+    .where(inArray(projects.id, projectIds));
+  const projectById = new Map(projectRows.map((p) => [p.id, p]));
 
-  const wsTarget = workspaceConfig.workspace;
+  const primaryProject = projectById.get(params.projectId);
+  if (!primaryProject) return err({ type: 'project-not-found' });
 
-  if (wsTarget.kind === 'repository-instance') {
-    workspaceId = wsTarget.workspaceId;
-  } else {
-    workspaceId = crypto.randomUUID();
-
-    if (wsTarget.kind === 'byoi') {
-      newWorkspaceValues = {
-        id: workspaceId,
-        kind: 'byoi',
-        location: 'remote',
-        type: 'byoi',
-        config: workspaceConfig,
-      };
-    } else {
-      // 'new-worktree' — derive location from the project.
-      const [projectRow] = await db
-        .select({
-          workspaceProvider: projects.workspaceProvider,
-          sshConnectionId: projects.sshConnectionId,
-        })
-        .from(projects)
-        .where(eq(projects.id, params.projectId))
-        .limit(1);
-
-      const isRemote = projectRow?.workspaceProvider === 'ssh';
-      const location = isRemote ? 'remote' : 'local';
-      const sshConnectionId = isRemote ? (projectRow?.sshConnectionId ?? null) : null;
-      const legacyType = isRemote ? 'project-ssh' : 'local';
-
-      newWorkspaceValues = {
-        id: workspaceId,
-        kind: 'worktree',
-        location,
-        sshConnectionId,
-        type: legacyType,
-        config: workspaceConfig,
-      };
+  if (additionalRepos.length > 0) {
+    for (const repo of additionalRepos) {
+      const project = projectById.get(repo.projectId);
+      if (!project || !projectManager.getProject(repo.projectId)) {
+        return err({ type: 'project-not-found' });
+      }
+      if (project.organizationId !== primaryProject.organizationId) {
+        return err({ type: 'cross-org-repos' });
+      }
+      // v1: multi-repo agent sessions run locally (--add-dir on one machine);
+      // SSH/BYOI attachments would need per-repo transports.
+      if (project.workspaceProvider !== 'local' || repo.workspaceConfig.workspace.kind === 'byoi') {
+        return err({ type: 'multi-repo-requires-local' });
+      }
+    }
+    if (
+      primaryProject.workspaceProvider !== 'local' ||
+      params.workspaceConfig.workspace.kind === 'byoi'
+    ) {
+      return err({ type: 'multi-repo-requires-local' });
     }
   }
+
+  const initialStatus: TaskLifecycleStatus = params.taskConfig.initialStatus ?? 'in_progress';
+
+  const newWorkspaces: WorkspaceInsert[] = [];
+  const workspaceId = resolveWorkspaceForRepo(params.workspaceConfig, primaryProject, newWorkspaces);
+
+  const attachments: TaskProjectInsert[] = [
+    { taskId: params.id, projectId: params.projectId, workspaceId, sortOrder: 0 },
+  ];
+  additionalRepos.forEach((repo, index) => {
+    const project = projectById.get(repo.projectId)!;
+    const repoWorkspaceId = resolveWorkspaceForRepo(repo.workspaceConfig, project, newWorkspaces);
+    attachments.push({
+      taskId: params.id,
+      projectId: repo.projectId,
+      workspaceId: repoWorkspaceId,
+      sortOrder: index + 1,
+    });
+  });
 
   let convInsert: ConvInsert | undefined;
   if (params.taskConfig.initialConversation) {
@@ -108,7 +177,15 @@ export async function prepareCreateTask(
     };
   }
 
-  return ok({ params, initialStatus, workspaceId, newWorkspaceValues, convInsert });
+  return ok({
+    params,
+    initialStatus,
+    organizationId: primaryProject.organizationId,
+    workspaceId,
+    newWorkspaces,
+    attachments,
+    convInsert,
+  });
 }
 
 /**
@@ -121,12 +198,14 @@ export function commitCreateTask(
   prepared: PreparedCreateTask,
   tx: DrizzleTx
 ): { taskRow: TaskRow; convRow: ConversationRow | undefined } {
-  const { params, initialStatus, workspaceId, newWorkspaceValues, convInsert } = prepared;
+  const { params, initialStatus, organizationId, workspaceId, newWorkspaces, attachments, convInsert } =
+    prepared;
 
   const [taskRow] = tx
     .insert(tasks)
     .values({
       id: params.id,
+      organizationId,
       projectId: params.projectId,
       name: params.taskConfig.name,
       status: initialStatus,
@@ -141,8 +220,11 @@ export function commitCreateTask(
     .returning()
     .all();
 
-  if (newWorkspaceValues) {
-    tx.insert(workspaces).values(newWorkspaceValues).run();
+  for (const newWorkspace of newWorkspaces) {
+    tx.insert(workspaces).values(newWorkspace).run();
+  }
+  for (const attachment of attachments) {
+    tx.insert(taskProjects).values(attachment).run();
   }
 
   let convRow: ConversationRow | undefined;
@@ -162,7 +244,12 @@ export function finalizeCreateTask(
   taskRow: TaskRow,
   convRow: ConversationRow | undefined
 ): CreateTaskSuccess {
-  const task = mapTaskRowToTask(taskRow, []);
+  const repos = prepared.attachments.map((a) => ({
+    projectId: a.projectId,
+    workspaceId: a.workspaceId ?? undefined,
+    sortOrder: a.sortOrder ?? 0,
+  }));
+  const task = mapTaskRowToTask(taskRow, [], {}, repos);
 
   let initialConversation: Conversation | undefined;
   if (convRow) {
