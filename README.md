@@ -31,6 +31,8 @@ already use: Claude Code, Codex, OpenCode, Gemini, Amp, and more.
 
 - Run multiple coding agents at once without juggling terminals.
 - Keep every agent isolated in its own Git worktree and branch.
+- Attach multiple repositories from an organization to one task and let the
+  agent work across all of them in a single session.
 - Send issues and tickets from Linear, GitHub, Jira, GitLab, Asana, Featurebase,
   Monday.com, Forgejo, Trello, Azure DevOps, or Plain into an agent.
 - Tune Claude Code's reasoning effort per task (low → max, or ultracode).

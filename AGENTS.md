@@ -286,7 +286,9 @@ pnpm run test
 
 ## Extensibility Hooks
 
-- Agent providers are defined in `src/shared/agent-provider-registry.ts`.
+- Agent providers are defined in `src/shared/agent-provider-registry.ts`; providers
+  with an `addDirFlag` (e.g. Claude Code `--add-dir`) see every worktree of a
+  multi-repo task in one session.
 - Provider detection lives in `src/main/core/dependencies/dependency-manager.ts`.
 - Provider PTY behavior and env passthrough live under `src/main/core/pty/`.
 - Provider event classifiers live in `src/main/core/agent-hooks/classifiers/`.
