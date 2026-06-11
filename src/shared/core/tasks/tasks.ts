@@ -57,8 +57,21 @@ export const taskLifecycleStatuses = z.enum([
 
 export type TaskLifecycleStatus = z.infer<typeof taskLifecycleStatuses>;
 
+/**
+ * One repo attached to a task. `sortOrder === 0` is the primary repo and
+ * mirrors the task's legacy `projectId` / `workspaceId` fields, which all
+ * single-repo plumbing (PTY session ids, events, navigation) keeps using.
+ */
+export type TaskRepo = {
+  projectId: string;
+  workspaceId?: string;
+  sortOrder: number;
+};
+
 export type Task = {
   id: string;
+  organizationId: string;
+  /** Primary project. Additional repos are listed in `repos`. */
   projectId: string;
   name: string;
   status: TaskLifecycleStatus;
@@ -73,7 +86,10 @@ export type Task = {
   prs: PullRequest[];
   conversations: Record<string, number>;
   workspaceGit?: { linesAdded: number; linesDeleted: number };
+  /** Primary workspace. Additional repos' workspaces are listed in `repos`. */
   workspaceId?: string;
+  /** All repo attachments (primary first). Always has at least one entry. */
+  repos: TaskRepo[];
   type: 'task' | 'automation-run';
   automationRunId?: string;
 };
@@ -86,17 +102,26 @@ export type TaskBootstrapStatus =
 
 export type CreateTaskParams = {
   id: string;
+  /** Primary project (repo). The task's organization is derived from it. */
   projectId: string;
   /** Typed, versioned task configuration (name, issue link, conversation, status). */
   taskConfig: TaskConfig;
   /** Typed, versioned workspace configuration (git setup + workspace location). */
   workspaceConfig: WorkspaceConfig;
+  /**
+   * Additional repos to attach. Each gets its own workspace/worktree. All repos
+   * must belong to the same organization as the primary project, and multi-repo
+   * tasks currently require local (non-SSH, non-BYOI) projects.
+   */
+  additionalRepos?: Array<{ projectId: string; workspaceConfig: WorkspaceConfig }>;
   /** Set when the task is created by an automation run; stored on the task row for audit trail. */
   automationRunId?: string;
 };
 
 export type CreateTaskError =
   | { type: 'project-not-found' }
+  | { type: 'cross-org-repos' }
+  | { type: 'multi-repo-requires-local' }
   | { type: 'initial-commit-required'; branch: string }
   | { type: 'branch-create-failed'; branch: string; error: CreateBranchError }
   | { type: 'pr-fetch-failed'; error: FetchPrForReviewError; remote: string }
@@ -125,8 +150,12 @@ export type RenameTaskSuccess = {
 };
 
 export type ProvisionTaskResult = {
+  /** Primary workspace path (the agent session cwd). */
   path: string;
+  /** Primary workspace id. */
   workspaceId: string;
+  /** Additional repos' provisioned workspaces (empty for single-repo tasks). */
+  repos?: Array<{ projectId: string; workspaceId: string; path: string }>;
 };
 
 export type ProvisionWorkspaceError =

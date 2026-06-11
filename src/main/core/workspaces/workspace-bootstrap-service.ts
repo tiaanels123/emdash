@@ -1,12 +1,12 @@
 import path from 'node:path';
-import { eq, sql } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import { projectManager } from '@main/core/projects/project-manager';
 import type { ProjectProvider, TaskProvider } from '@main/core/projects/project-provider';
 import { sshConnectionManager } from '@main/core/ssh/lifecycle/production-ssh-connection-manager';
 import { buildTaskFromWorkspace, emitTaskProvisionProgress } from '@main/core/tasks/task-builder';
 import { mapTaskRowToTask } from '@main/core/tasks/utils/utils';
 import { db as appDb, type AppDb } from '@main/db/client';
-import { tasks, workspaces } from '@main/db/schema';
+import { taskProjects, tasks, workspaces } from '@main/db/schema';
 import { log } from '@main/lib/logger';
 import type { Branch } from '@shared/core/git/git';
 import type { Task, ProvisionWorkspaceError } from '@shared/core/tasks/tasks';
@@ -31,6 +31,24 @@ export type WorkspaceBootstrapResult = {
   taskProvider: TaskProvider;
   /** BYOI only — workspace provider data to persist in the DB. */
   workspaceProviderData?: WorkspaceProviderData;
+  /** Provisioned workspaces of the task's additional repos (multi-repo tasks). */
+  additionalWorkspaces?: AdditionalWorkspaceResult[];
+};
+
+export type AdditionalWorkspaceResult = {
+  projectId: string;
+  workspaceId: string;
+  path: string;
+  worktreeGitDir?: string;
+  branchName?: string;
+};
+
+type ResolvedWorkspacePath = {
+  path: string;
+  /** May differ from the input row id when persistPath deduped onto an existing row. */
+  workspaceId: string;
+  branchName?: string;
+  sourceBranch?: Branch;
 };
 
 export class WorkspaceBootstrapService {
@@ -65,11 +83,48 @@ export class WorkspaceBootstrapService {
       workspaceProvider: string | null;
     },
     task: Task,
-    project: ProjectProvider
+    project: ProjectProvider,
+    opts?: { extraWorktreePaths?: string[] }
   ): Promise<Result<WorkspaceBootstrapResult, ProvisionWorkspaceError>> {
-    const wsKind = workspaceRow.kind;
-    const isByoi = wsKind === 'byoi' || workspaceRow.type === 'byoi';
+    // BYOI workspaces are managed by provisionBYOITask.
+    if (workspaceRow.kind === 'byoi' || workspaceRow.type === 'byoi') {
+      return this._provisionBYOI(workspaceRow, task, project);
+    }
 
+    const resolved = await this._resolveWorkspacePath(workspaceRow, taskRow, project);
+    if (!resolved.success) return resolved;
+
+    return this._acquireAndBuild(
+      workspaceRow.id,
+      task,
+      project,
+      resolved.data.path,
+      resolved.data.branchName,
+      resolved.data.sourceBranch,
+      opts?.extraWorktreePaths
+    );
+  }
+
+  /**
+   * Resolves the on-disk path for a non-BYOI workspace: project-root and
+   * already-on-disk fast paths, otherwise compiles and executes the
+   * `WorkspaceSetupSpec` (with recovery) and persists the resolved path.
+   */
+  private async _resolveWorkspacePath(
+    workspaceRow: {
+      id: string;
+      type: WorkspaceType;
+      kind?: string | null;
+      path: string | null;
+      config?: WorkspaceConfig | null;
+      branchName?: string | null;
+    },
+    taskRow: {
+      workspaceIntent: string | null;
+      workspaceProvider: string | null;
+    },
+    project: ProjectProvider
+  ): Promise<Result<ResolvedWorkspacePath, ProvisionWorkspaceError>> {
     // Derive branch info from workspace config for passing to task providers.
     const wsConfig = workspaceRow.config;
     const workspaceBranchName: string | undefined =
@@ -80,36 +135,26 @@ export class WorkspaceBootstrapService {
 
     // project-root fast-path: use the project repo path directly.
     // Path is set by ensureRepositoryWorkspace at mount time.
-    if (wsKind === 'project-root') {
-      const resolvedPath = workspaceRow.path ?? project.repoPath;
-      return this._acquireAndBuild(
-        workspaceRow.id,
-        task,
-        project,
-        resolvedPath,
-        workspaceBranchName,
-        workspaceSourceBranch
-      );
+    if (workspaceRow.kind === 'project-root') {
+      return ok({
+        path: workspaceRow.path ?? project.repoPath,
+        workspaceId: workspaceRow.id,
+        branchName: workspaceBranchName,
+        sourceBranch: workspaceSourceBranch,
+      });
     }
 
     // Fast path: path already persisted and still exists on disk.
-    if (workspaceRow.path && !isByoi) {
+    if (workspaceRow.path) {
       const exists = await project.worktreeHost.existsAbsolute(workspaceRow.path);
       if (exists) {
-        return this._acquireAndBuild(
-          workspaceRow.id,
-          task,
-          project,
-          workspaceRow.path,
-          workspaceBranchName,
-          workspaceSourceBranch
-        );
+        return ok({
+          path: workspaceRow.path,
+          workspaceId: workspaceRow.id,
+          branchName: workspaceBranchName,
+          sourceBranch: workspaceSourceBranch,
+        });
       }
-    }
-
-    // BYOI workspaces are managed by provisionBYOITask.
-    if (isByoi) {
-      return this._provisionBYOI(workspaceRow, task, project);
     }
 
     const intent = resolveWorkspaceIntent(taskRow, workspaceRow);
@@ -135,21 +180,19 @@ export class WorkspaceBootstrapService {
         'path' in intent.workspace && intent.workspace.path
           ? intent.workspace.path
           : project.repoPath;
-      await this.persistPath(
+      const persistedId = await this.persistPath(
         workspaceRow.id,
         resolvedPath,
         workspaceRow.type,
         connectionId,
         intentBranchName
       );
-      return this._acquireAndBuild(
-        workspaceRow.id,
-        task,
-        project,
-        resolvedPath,
-        intentBranchName,
-        intentSourceBranch
-      );
+      return ok({
+        path: resolvedPath,
+        workspaceId: persistedId,
+        branchName: intentBranchName,
+        sourceBranch: intentSourceBranch,
+      });
     }
 
     const worktreePoolPath = await project.worktreeService.getWorktreePoolPath();
@@ -182,8 +225,9 @@ export class WorkspaceBootstrapService {
     }
 
     const resolvedPath = setupResult.data.path;
+    let persistedId = workspaceRow.id;
     if (resolvedPath) {
-      await this.persistPath(
+      persistedId = await this.persistPath(
         workspaceRow.id,
         resolvedPath,
         workspaceRow.type,
@@ -196,14 +240,92 @@ export class WorkspaceBootstrapService {
       sshConnectionManager.reportChannelRecovered(connectionId);
     }
 
-    return this._acquireAndBuild(
-      workspaceRow.id,
-      task,
-      project,
-      resolvedPath ?? '',
-      intentBranchName,
-      intentSourceBranch
-    );
+    return ok({
+      path: resolvedPath ?? '',
+      workspaceId: persistedId,
+      branchName: intentBranchName,
+      sourceBranch: intentSourceBranch,
+    });
+  }
+
+  /**
+   * Provisions one ADDITIONAL repo of a multi-repo task: resolves/creates the
+   * worktree and acquires the workspace (running lifecycle scripts), but does
+   * NOT build task providers — those are built once, from the primary
+   * workspace, with the additional worktree paths passed along.
+   */
+  async ensureAdditionalWorkspaceSetup(
+    workspaceRow: {
+      id: string;
+      type: WorkspaceType;
+      kind?: string | null;
+      path: string | null;
+      config?: WorkspaceConfig | null;
+      branchName?: string | null;
+    },
+    taskRow: {
+      workspaceIntent: string | null;
+      workspaceProvider: string | null;
+    },
+    task: Task,
+    project: ProjectProvider
+  ): Promise<Result<AdditionalWorkspaceResult, ProvisionWorkspaceError>> {
+    const resolved = await this._resolveWorkspacePath(workspaceRow, taskRow, project);
+    if (!resolved.success) return resolved;
+    const workspaceId = resolved.data.workspaceId;
+
+    emitTaskProvisionProgress({
+      taskId: task.id,
+      projectId: project.projectId,
+      step: 'initialising-workspace',
+      message: 'Initialising workspace…',
+    });
+
+    let workspace;
+    try {
+      workspace = await workspaceRegistry.acquire(
+        workspaceId,
+        project.projectId,
+        createWorkspaceFactory(workspaceId, project.defaultWorkspaceType, {
+          task,
+          workDir: resolved.data.path,
+          projectId: project.projectId,
+          projectPath: project.repoPath,
+          settings: project.settings,
+          logPrefix: 'WorkspaceBootstrapService',
+          repository: project.repository,
+          fetchService: project.gitFetchService,
+        })
+      );
+    } catch (e) {
+      return err({
+        type: 'setup-failed',
+        stepKind: 'workspace-acquire',
+        stepErrorType: 'error',
+        message: String(e),
+      });
+    }
+
+    let worktreeGitDir: string | undefined;
+    if (project.defaultWorkspaceType.kind === 'local') {
+      try {
+        const mainDotGitAbs = path.resolve(project.repoPath, '.git');
+        worktreeGitDir = await workspace.git.getWorktreeGitDir(mainDotGitAbs);
+      } catch (e) {
+        log.warn('WorkspaceBootstrapService: failed to resolve worktreeGitDir', {
+          workspaceId,
+          error: String(e),
+        });
+      }
+    }
+
+    return ok({
+      projectId: project.projectId,
+      workspaceId,
+      path: resolved.data.path,
+      worktreeGitDir,
+      branchName: resolved.data.branchName,
+    });
   }
 
   /**
@@ -228,7 +350,80 @@ export class WorkspaceBootstrapService {
     if (!project) throw new Error(`Project ${row.projectId} not found`);
 
     const task = mapTaskRowToTask(row);
-    return this.ensureWorkspaceSetup(wsRow, row, task, project);
+
+    // Provision the additional repos FIRST so their worktree paths can be
+    // baked into the primary workspace's task providers (agent --add-dir).
+    const attachments = await this.db
+      .select()
+      .from(taskProjects)
+      .where(eq(taskProjects.taskId, taskId))
+      .orderBy(asc(taskProjects.sortOrder));
+    const secondary = attachments.filter((a) => a.projectId !== row.projectId);
+
+    const additionalWorkspaces: AdditionalWorkspaceResult[] = [];
+    const releaseProvisioned = async () => {
+      await Promise.all(
+        additionalWorkspaces.map((a) =>
+          workspaceRegistry.release(a.workspaceId, 'terminate').catch(() => {})
+        )
+      );
+    };
+
+    for (const attachment of secondary) {
+      const repoProject = projectManager.getProject(attachment.projectId);
+      if (!repoProject || !attachment.workspaceId) {
+        await releaseProvisioned();
+        return err({
+          type: 'setup-failed',
+          stepKind: 'attached-repo',
+          stepErrorType: 'project-not-available',
+          message: `Attached project ${attachment.projectId} is not available`,
+        });
+      }
+
+      const [repoWsRow] = await this.db
+        .select()
+        .from(workspaces)
+        .where(eq(workspaces.id, attachment.workspaceId))
+        .limit(1);
+      if (!repoWsRow) {
+        await releaseProvisioned();
+        return err({
+          type: 'setup-failed',
+          stepKind: 'attached-repo',
+          stepErrorType: 'workspace-not-found',
+          message: `Workspace ${attachment.workspaceId} not found for attached project ${attachment.projectId}`,
+        });
+      }
+
+      const result = await this.ensureAdditionalWorkspaceSetup(repoWsRow, row, task, repoProject);
+      if (!result.success) {
+        await releaseProvisioned();
+        return result;
+      }
+
+      // persistPath may have deduped onto an existing workspace row — keep the
+      // attachment row pointing at the row that actually owns the path.
+      if (result.data.workspaceId !== attachment.workspaceId) {
+        await this.db
+          .update(taskProjects)
+          .set({ workspaceId: result.data.workspaceId })
+          .where(
+            and(eq(taskProjects.taskId, taskId), eq(taskProjects.projectId, attachment.projectId))
+          );
+      }
+      additionalWorkspaces.push(result.data);
+    }
+
+    const primary = await this.ensureWorkspaceSetup(wsRow, row, task, project, {
+      extraWorktreePaths: additionalWorkspaces.map((a) => a.path),
+    });
+    if (!primary.success) {
+      await releaseProvisioned();
+      return primary;
+    }
+
+    return ok({ ...primary.data, additionalWorkspaces });
   }
 
   /**
@@ -273,7 +468,8 @@ export class WorkspaceBootstrapService {
     project: ProjectProvider,
     workDir: string,
     workspaceBranchName?: string,
-    workspaceSourceBranch?: Branch
+    workspaceSourceBranch?: Branch,
+    extraWorktreePaths?: string[]
   ): Promise<Result<WorkspaceBootstrapResult, ProvisionWorkspaceError>> {
     const type = project.defaultWorkspaceType;
 
@@ -340,7 +536,8 @@ export class WorkspaceBootstrapService {
         project.repoPath,
         project.settings,
         workspaceBranchName,
-        workspaceSourceBranch
+        workspaceSourceBranch,
+        extraWorktreePaths
       );
       buildSucceeded = true;
       return ok({

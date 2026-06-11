@@ -60,6 +60,10 @@ function formatCreateTaskError(error: CreateTaskError): string {
   switch (error.type) {
     case 'project-not-found':
       return 'Project not found.';
+    case 'cross-org-repos':
+      return 'All repositories of a task must belong to the same organization.';
+    case 'multi-repo-requires-local':
+      return 'Multi-repository tasks currently support local repositories only.';
     case 'initial-commit-required':
       return 'Create an initial commit to enable branch-based tasks.';
     case 'branch-create-failed': {

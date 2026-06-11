@@ -1,7 +1,7 @@
-import { and, count, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray } from 'drizzle-orm';
 import { db } from '@main/db/client';
-import { conversations, tasks, workspaces } from '@main/db/schema';
-import { type Task } from '@shared/core/tasks/tasks';
+import { conversations, taskProjects, tasks, workspaces } from '@main/db/schema';
+import { type Task, type TaskRepo } from '@shared/core/tasks/tasks';
 import { mapTaskRowToTask } from '../utils/utils';
 
 export async function getTasks(projectId?: string): Promise<Task[]> {
@@ -34,6 +34,24 @@ export async function getTasks(projectId?: string): Promise<Task[]> {
     convByTask.set(taskId, rec);
   }
 
+  const repoRows = await db
+    .select({
+      taskId: taskProjects.taskId,
+      projectId: taskProjects.projectId,
+      workspaceId: taskProjects.workspaceId,
+      sortOrder: taskProjects.sortOrder,
+    })
+    .from(taskProjects)
+    .where(inArray(taskProjects.taskId, taskIds))
+    .orderBy(asc(taskProjects.sortOrder));
+
+  const reposByTask = new Map<string, TaskRepo[]>();
+  for (const { taskId, projectId, workspaceId, sortOrder } of repoRows) {
+    const list = reposByTask.get(taskId) ?? [];
+    list.push({ projectId, workspaceId: workspaceId ?? undefined, sortOrder });
+    reposByTask.set(taskId, list);
+  }
+
   const wsIds = rows.map((r) => r.workspaceId).filter((id): id is string => id != null);
   const wsRows = wsIds.length
     ? await db
@@ -50,7 +68,7 @@ export async function getTasks(projectId?: string): Promise<Task[]> {
   return rows.map((row) => {
     const ws = row.workspaceId ? wsByWsId.get(row.workspaceId) : undefined;
     return {
-      ...mapTaskRowToTask(row),
+      ...mapTaskRowToTask(row, [], {}, reposByTask.get(row.id)),
       prs: [],
       conversations: convByTask.get(row.id) ?? {},
       workspaceGit:

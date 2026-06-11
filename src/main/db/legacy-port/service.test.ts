@@ -45,6 +45,7 @@ function createAppDb(): Database.Database {
 
     CREATE TABLE tasks (
       id TEXT PRIMARY KEY,
+      organization_id TEXT NOT NULL DEFAULT '${PERSONAL_ORGANIZATION_ID}',
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       status TEXT NOT NULL,

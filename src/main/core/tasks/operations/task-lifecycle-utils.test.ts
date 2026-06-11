@@ -14,6 +14,11 @@ vi.mock('@main/db/client', () => ({
         where: () => ({
           limit: mocks.limit,
         }),
+        innerJoin: () => ({
+          where: () => ({
+            limit: mocks.limit,
+          }),
+        }),
       }),
     }),
     delete: (...args: unknown[]) => {

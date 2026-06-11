@@ -6,7 +6,7 @@ import { getTasks } from '@main/core/tasks/operations/getTasks';
 import { taskSessionManager } from '@main/core/tasks/task-session-manager';
 import { viewStateService } from '@main/core/view-state/view-state-service';
 import { db } from '@main/db/client';
-import { projects } from '@main/db/schema';
+import { projects, taskProjects } from '@main/db/schema';
 import { telemetryService } from '@main/lib/telemetry';
 
 export async function deleteProject(id: string): Promise<void> {
@@ -21,6 +21,10 @@ export async function deleteProject(id: string): Promise<void> {
   }
 
   await prSyncEngine.deleteProjectData(id);
+  // Detach this project from every task attachment (FKs are unenforced at
+  // runtime) — multi-repo tasks that attached it as a secondary repo keep
+  // working against their remaining repos.
+  await db.delete(taskProjects).where(eq(taskProjects.projectId, id));
   await db.delete(projects).where(eq(projects.id, id));
   void viewStateService.del(`project:${id}`);
   projectEvents._emit('project:deleted', id);

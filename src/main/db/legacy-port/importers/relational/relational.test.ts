@@ -49,6 +49,7 @@ function createAppDb(): {
 
     CREATE TABLE tasks (
       id TEXT PRIMARY KEY,
+      organization_id TEXT NOT NULL DEFAULT '${PERSONAL_ORGANIZATION_ID}',
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       status TEXT NOT NULL,
@@ -89,7 +90,9 @@ function createAppDb(): {
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       last_interacted_at TEXT,
       is_initial_conversation INTEGER,
-      session_id TEXT
+      session_id TEXT,
+      agent_status TEXT,
+      agent_status_seen INTEGER DEFAULT 1
     );
   `);
 

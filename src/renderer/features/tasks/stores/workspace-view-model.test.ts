@@ -106,7 +106,9 @@ function deferred<T = void>(): {
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {
     id: 'task-1',
+    organizationId: 'org-1',
     projectId: 'project-1',
+    repos: [{ projectId: 'project-1', workspaceId: 'workspace-1', sortOrder: 0 }],
     name: 'Task 1',
     status: 'todo',
     createdAt: '2026-01-01T00:00:00.000Z',

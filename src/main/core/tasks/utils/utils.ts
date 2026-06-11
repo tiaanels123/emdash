@@ -1,14 +1,16 @@
 import type { TaskRow } from '@main/db/schema';
 import type { PullRequest } from '@shared/core/pull-requests/pull-requests';
-import type { Task, TaskLifecycleStatus } from '@shared/core/tasks/tasks';
+import type { Task, TaskLifecycleStatus, TaskRepo } from '@shared/core/tasks/tasks';
 
 export function mapTaskRowToTask(
   row: TaskRow,
   prs: PullRequest[] = [],
-  conversations: Record<string, number> = {}
+  conversations: Record<string, number> = {},
+  repos?: TaskRepo[]
 ): Task {
   return {
     id: row.id,
+    organizationId: row.organizationId,
     projectId: row.projectId,
     name: row.name,
     status: row.status as TaskLifecycleStatus,
@@ -22,6 +24,9 @@ export function mapTaskRowToTask(
     statusChangedAt: row.statusChangedAt,
     isPinned: row.isPinned === 1,
     workspaceId: row.workspaceId ?? undefined,
+    repos: repos?.length
+      ? repos
+      : [{ projectId: row.projectId, workspaceId: row.workspaceId ?? undefined, sortOrder: 0 }],
     type: (row.type as 'task' | 'automation-run') ?? 'task',
     automationRunId: row.automationRunId ?? undefined,
   };
