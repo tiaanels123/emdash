@@ -130,6 +130,18 @@ session.
    branch, no-worktree mode attaches at repository root); task titlebar "+N" badge listing
    additional repos; `getTasks` returns `repos` per task.
 
+5. **Windows test suite repaired** (commit 56723f6) — all 13 pre-existing failing test files
+   fixed without weakening or skipping assertions (platform-aware paths, stubbed
+   platform/env, fake-ssh scripts driven via `process.execPath`, automation-scheduler SQL
+   updated off the 0015-removed `automation_runs.task_id`). Surfaced and fixed three latent
+   production bugs:
+   - `sshConfigParser`: SSH config `Include` glob patterns never matched on Windows
+     (`windowsPathsNoEscape` on win32 only);
+   - `terminal-shell/resolver`: PATH lookups used host path APIs instead of the injected
+     target platform;
+   - `deleteProject`: never called `detachProjectAutomations` — deleted projects kept their
+     automations scheduled (affects all platforms).
+
 ### Remaining work (follow-ups, in rough priority order)
 
 1. **Per-repo diff/editor UI** — the task view still binds to the primary workspace only
@@ -163,8 +175,9 @@ session.
 - `src/shared/logger.ts` must keep `import.meta.env?.` optional chaining or db:generate crashes.
 - Versioned JSON columns: shape changes need a new `.version()`; raw-SQL backfills must write
   latest-version JSON by hand (we avoid touching them entirely in v1).
-- Windows: don't run repo-wide `pnpm run format`; pre-existing failures in
-  `mcp/utils/config-paths.test.ts`, `relational.test.ts`, `automation-scheduler.db.test.ts`
-  are NOT regressions.
+- Windows: don't run repo-wide `pnpm run format`.
+- The pre-existing Windows test failures (13 files / 41 tests on main) were ALL fixed on this
+  branch — the full node/main-db/migrations suite is green (243 files / 1795 tests). The
+  browser vitest project needs a one-time `pnpm exec playwright install chromium` locally.
 - `resolveTask`/`resolveWorkspace` already ignore projectId — main git/fs/editor tier is
   workspace-keyed and multi-repo-safe as-is.
